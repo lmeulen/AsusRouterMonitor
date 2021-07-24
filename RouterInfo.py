@@ -29,7 +29,7 @@ class RouterInfo:
         logintoken = base64.b64encode(auth).decode('ascii')
         payload = "login_authorization={}".format(logintoken)
         headers = {
-            'user-agent': "asusrouter-Android-DUTUtil-1.0.0.201"
+            'user-agent': "asusrouter-Android-DUTUtil-1.0.0.245"
         }
         try:
             r = requests.post(url='http://{}/login.cgi'.format(self.ip), data=payload, headers=headers).json()
@@ -51,7 +51,7 @@ class RouterInfo:
         if self.token:
             payload = "hook={}".format(command)
             headers = {
-                'user-agent': "asusrouter-Android-DUTUtil-1.0.0.201",
+                'user-agent': "asusrouter-Android-DUTUtil-1.0.0.245",
                 'cookie': 'asus_token={}'.format(self.token)
             }
             try:
@@ -251,7 +251,7 @@ class RouterInfo:
         """
         clnts = self.get_clients_fullinfo()
         lst = []
-        for c in clnts['get_clientlist']:
+        for c in clnts['get_clientlist()']:
             if (len(c) == 17) and (clnts['get_clientlist'][c]['isOnline'] == '1'):
                 lst.append({"mac": c})
         return json.dumps(lst)
