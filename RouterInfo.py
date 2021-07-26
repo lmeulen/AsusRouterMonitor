@@ -278,7 +278,7 @@ class RouterInfo:
                         "curTx": clnts['get_clientlist'][c]['curTx'],
                         "curRx": clnts['get_clientlist'][c]['curRx'],
                         "totalTx": clnts['get_clientlist'][c]['totalTx'],
-                        "totalTx": clnts['get_clientlist'][c]['totalRx'],
+                        "totalRx": clnts['get_clientlist'][c]['totalRx'],
                     }
                 )
         return json.loads(json.dumps(lst))
