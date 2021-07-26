@@ -14,11 +14,11 @@ class RouterInfo:
             username : Root user name
             password : Password required to login
         """
-        self.ip = ipaddress
-        self.token = None
-        self.__authenticate(username, password)
+        self.url = 'http://{}/appGet.cgi'.format(ipaddress)
+        self.headers = None
+        self.__authenticate(ipaddress, username, password)
 
-    def __authenticate(self, username, password):
+    def __authenticate(self, ipaddress, username, password):
         """
         Authenticate the object with the router
         Parameters:
@@ -32,11 +32,15 @@ class RouterInfo:
             'user-agent': "asusrouter-Android-DUTUtil-1.0.0.245"
         }
         try:
-            r = requests.post(url='http://{}/login.cgi'.format(self.ip), data=payload, headers=headers).json()
+            r = requests.post(url='http://{}/login.cgi'.format(ipaddress), data=payload, headers=headers).json()
         except:
             return False
         if "asus_token" in r:
-            self.token = r['asus_token']
+            token = r['asus_token']
+            self.headers = {
+                'user-agent': "asusrouter-Android-DUTUtil-1.0.0.245",
+                'cookie': 'asus_token={}'.format(token)
+            }
             return True
         else:
             return False
@@ -48,14 +52,10 @@ class RouterInfo:
             command : Command to send to the return
         :returns: string result from the router
         """
-        if self.token:
+        if self.headers:
             payload = "hook={}".format(command)
-            headers = {
-                'user-agent': "asusrouter-Android-DUTUtil-1.0.0.245",
-                'cookie': 'asus_token={}'.format(self.token)
-            }
             try:
-                r = requests.post(url='http://{}/appGet.cgi'.format(self.ip), data=payload, headers=headers)
+                r = requests.post(url=self.url, data=payload, headers=self.headers)
             except:
                 return None
             return r.text
@@ -250,8 +250,9 @@ class RouterInfo:
         :returns: JSON list with MAC adresses
         """
         clnts = self.get_clients_fullinfo()
+        print(clnts)
         lst = []
-        for c in clnts['get_clientlist()']:
+        for c in clnts['get_clientlist']:
             if (len(c) == 17) and (clnts['get_clientlist'][c]['isOnline'] == '1'):
                 lst.append({"mac": c})
         return json.dumps(lst)
