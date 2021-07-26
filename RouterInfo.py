@@ -267,6 +267,7 @@ class RouterInfo:
         clnts = self.get_clients_fullinfo()
         lst = []
         for c in clnts['get_clientlist']:
+            # Only walk through the mac-adresses, not the additional datafields
             if (len(c) == 17) and (clnts['get_clientlist'][c]['isOnline'] == '1'):
                 lst.append(
                     {
