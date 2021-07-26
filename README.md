@@ -2,6 +2,9 @@
 
 A class to access your Asus router. Uses HTTP calls to obtain information from your router.
 
+See also: [Monitor your Asus router in Python](https://leo-vander-meulen.medium.com/monitor-your-asus-router-in-python-171693465fc1)
+on Medium.
+
 Example usage:
 
 ```
