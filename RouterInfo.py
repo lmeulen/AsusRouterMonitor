@@ -210,7 +210,7 @@ class RouterInfo:
             settings[s] = json.loads(r)[s]
         return settings
 
-    def get_lan_ip_adress(self):
+    def get_lan_ip_address(self):
         """
         Obtain the IP address of the router
         :return: IP address

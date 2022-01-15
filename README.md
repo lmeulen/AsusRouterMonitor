@@ -29,7 +29,7 @@ get_traffic_total    - Total network usage since last boot
 get_traffic          - Current network usage and total usage
 get_status_wan       - Get WAN status info
 is_wan_online        - WAN connected True/False
-get_lan_ip_adress    - Get router IP address for LAN
+get_lan_ip_address   - Get router IP address for LAN
 get_lan_netmask      - Get network mask for LAN
 get_lan_gateway      - Get gateway address for LAN
 get_dhcp_list        - List of DHCP leases given out
