@@ -253,7 +253,7 @@ class RouterInfo:
         print(clnts)
         lst = []
         for c in clnts['get_clientlist']:
-            if (len(c) == 17) and (clnts['get_clientlist'][c]['isOnline'] == '1'):
+            if (len(c) == 17) and ("isOnline" in clnts['get_clientlist'][c]) and (clnts['get_clientlist'][c]['isOnline'] == '1'):
                 lst.append({"mac": c})
         return json.dumps(lst)
 
@@ -268,7 +268,7 @@ class RouterInfo:
         lst = []
         for c in clnts['get_clientlist']:
             # Only walk through the mac-addresses, not the additional datafields
-            if (len(c) == 17) and (clnts['get_clientlist'][c]['isOnline'] == '1'):
+            if (len(c) == 17) and ("isOnline" in clnts['get_clientlist'][c]) and (clnts['get_clientlist'][c]['isOnline'] == '1'):
                 lst.append(
                     {
                         "name": clnts['get_clientlist'][c]['name'],
