@@ -1,7 +1,7 @@
 from RouterInfo import RouterInfo
 
 if __name__ == "__main__":
-    ri = RouterInfo("192.168.2.1", "admin", "lertikf7")
+    ri = RouterInfo("192.168.2.1", "admin", "<<YOUR PASSWORD>>")
     print("Uptime    : " + str(ri.get_uptime()))
     print("Uptime    : " + str(ri.get_uptime_secs()))
     print("Memory    : " + str(ri.get_memory_usage()))
