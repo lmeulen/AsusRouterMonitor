@@ -49,7 +49,7 @@ class RouterInfo:
         """
         Private get method to execute a hook on the router and return the result
         Parameters:
-            command : Command to send to the return
+            command : Command to send to the router
         :returns: string result from the router
         """
         if self.headers:
@@ -184,7 +184,7 @@ class RouterInfo:
 
     def is_wan_online(self):
         """
-        Returns if the WAN connection in onlise
+        Returns if the WAN connection in online
         :returns: True if WAN is connected
         """
         r = self.get_status_wan()
@@ -229,7 +229,7 @@ class RouterInfo:
     def get_lan_gateway(self):
         """
         Obtain the gateway for the LAN network
-        :return: IP address of gateay
+        :return: IP address of gateway
         """
         r = self.__get("nvram_get(lan_gateway)")
         return json.loads(r)['lan_gateway']
