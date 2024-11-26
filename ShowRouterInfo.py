@@ -19,3 +19,4 @@ if __name__ == "__main__":
     print("Client   : " + str(ri.get_client_info('B8:2C:A0:5F:37:52')))
     print("DHCP      : " + str(ri.get_dhcp_list()))
     print("Online    : " + str(ri.get_online_clients()))
+    print("CPUTemp   : " + str(ri.get_cpu_temperature()))

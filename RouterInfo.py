@@ -14,6 +14,7 @@ class RouterInfo:
             username : Root user name
             password : Password required to login
         """
+        self.ipaddress = ipaddress
         self.url = 'http://{}/appGet.cgi'.format(ipaddress)
         self.headers = None
         self.__authenticate(ipaddress, username, password)
@@ -69,7 +70,7 @@ class RouterInfo:
         :returns: JSON with last boot time and uptime in seconds
         """
         r = self.__get('uptime()')
-        since = r.partition(':')[2].partition('(')[0]
+        since = r.partition(':')[2].partition('(')[0][1:]
         up = r.partition('(')[2].partition(' ')[0]
         return json.loads('{' + '"since":"{}", "uptime":"{}"'.format(since, up) + '}')
 
@@ -294,4 +295,18 @@ class RouterInfo:
         if clientid in clnts:
             return clnts[clientid]
         else:
+            return None
+
+    def get_cpu_temperature(self):
+        """
+        Get cpu temperature
+        :return: JSON with cpu temperature
+        """
+        self.url = 'http://' + self.ipaddress + '/ajax_coretmp.asp'
+        try:
+            r = requests.get(url=self.url, headers=self.headers)
+            cpu_tmp = r.text.split(';')[1].split('"')[1]
+            dt = {"cpu_temperature": cpu_tmp}
+            return json.loads(json.dumps(dt))
+        except:
             return None
