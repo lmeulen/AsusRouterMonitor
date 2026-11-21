@@ -11,8 +11,8 @@ Example usage:
 from asus_router_monitor import RouterInfo
 
 ri = RouterInfo("<router IP>", "<username>", "<password>")
-print("Uptime    : {}".format(ri.get_uptime()))
-print("Bandwidth : {}".format(ri.get_traffic()))
+print(f"Uptime    : {ri.get_uptime()}")
+print(f"Bandwidth : {ri.get_traffic()}")
 ```
 
 Run the status application with router address, username, and password. A hostname or IP address defaults to HTTP:
@@ -63,6 +63,8 @@ python3 ShowRouterInfo.py https://router.local:8443 admin secret --format json
 
 JSON stdout is one status object with `uptime`, `uptime_seconds`, `memory`, `cpu`, `cpu_temperature`, `traffic_total`, `wan`, `settings`, `lan`, `client_counts`, and `dhcp_lease_count`. CPU temperature is `null` when firmware does not support it. Errors remain on stderr.
 
+Text output groups router status, resources, network, and connected clients. It uses explicit labels and units: uptime in seconds, memory in KiB, CPU usage in percent, temperature in °C, and traffic totals in Mbit. Unsupported temperature displays as `unavailable`.
+
 The following methods are available:
 ```
 get_uptime           - Uptime and last time of boot
@@ -112,7 +114,7 @@ with AsusRouterClient("https://router.local", "admin", "password") as client:
 
 ## Typed contracts
 
-Public `TypedDict` contracts are importable from `asus_router_monitor`: `Uptime`, `MemoryUsage`, `CpuUsage`, `TrafficTotals`, `TrafficRate`, `Traffic`, `WanStatus`, `ClientInfo`, and `ClientCounts`. Traffic fields use megabits (`sent`, `recv`, `tx`, `rx`); `get_traffic()` supplies aggregate totals and current rates.
+Public `TypedDict` contracts are importable from `asus_router_monitor`: `Uptime`, `MemoryUsage`, `CpuUsage`, `TrafficTotals`, `TrafficRate`, `Traffic`, `WanStatus`, `ClientInfo`, and `ClientCounts`. CPU usage fields are normalized from firmware jiffies to percentage. Traffic totals (`sent`, `recv`) use Mbit converted from byte counters and are rounded to one decimal. `get_traffic()` also supplies Mbit/s rates, measured with a monotonic sampling interval and rounded to one decimal; a counter reset or rollover reports a zero rate for that direction.
 
 ## Error handling
 

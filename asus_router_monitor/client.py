@@ -62,15 +62,13 @@ class AsusRouterClient:
         if isinstance(error, requests.exceptions.SSLError):
             return RouterTLSError(f"Unable to {action} because TLS validation failed")
         if isinstance(error, requests.exceptions.HTTPError):
-            return RouterHTTPError(
-                f"Router returned an HTTP error while trying to {action}"
-            )
+            return RouterHTTPError(f"Router returned an HTTP error while trying to {action}")
         return RouterConnectionError(f"Unable to {action}")
 
     def _authenticate(self) -> None:
-        token = base64.b64encode(
-            f"{self._username}:{self._password}".encode("ascii")
-        ).decode("ascii")
+        token = base64.b64encode(f"{self._username}:{self._password}".encode("ascii")).decode(
+            "ascii"
+        )
         try:
             response = self.session.post(
                 self.login_url,
@@ -86,11 +84,11 @@ class AsusRouterClient:
             result = response.json()
         except ValueError as error:
             raise AuthenticationError("Router returned an invalid login response") from error
-        token = result.get("asus_token") if isinstance(result, dict) else None
-        if not token:
+        response_token = result.get("asus_token") if isinstance(result, dict) else None
+        if not isinstance(response_token, str) or not response_token:
             raise AuthenticationError("Router rejected username or password")
         self.session.headers.update(
-            {"user-agent": _USER_AGENT, "cookie": f"asus_token={token}"}
+            {"user-agent": _USER_AGENT, "cookie": f"asus_token={response_token}"}
         )
 
     def _post_with_retry(self, url: str, data: str, action: str) -> str:
@@ -113,9 +111,7 @@ class AsusRouterClient:
 
     def hook(self, command: str) -> str:
         """Run one appGet hook, reauthenticating once for 401/403 responses."""
-        return self._post_with_retry(
-            self.app_url, f"hook={command}", "request router data"
-        )
+        return self._post_with_retry(self.app_url, f"hook={command}", "request router data")
 
     def get_cpu_temperature(self) -> str:
         """Fetch raw CPU-temperature endpoint response."""

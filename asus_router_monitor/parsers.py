@@ -2,16 +2,14 @@
 
 import json
 import re
-from typing import Any
+from typing import Any, cast
 
 from .exceptions import RouterResponseError, UnsupportedFirmwareError
 from .models import CpuUsage, DhcpLeases, MemoryUsage, TrafficTotals, Uptime, WanStatus
 
 
 def _invalid(operation: str, error: Exception) -> RouterResponseError:
-    return RouterResponseError(
-        f"Router returned an invalid response for {operation}"
-    )
+    return RouterResponseError(f"Router returned an invalid response for {operation}")
 
 
 def _decode_json(text: str, operation: str) -> Any:
@@ -34,15 +32,30 @@ def parse_uptime(text: str) -> Uptime:
 
 def parse_memory_usage(text: str) -> MemoryUsage:
     try:
-        return _decode_json("{" + text[17:], "memory usage")
+        usage = _decode_json("{" + text[17:], "memory usage")
+        if not isinstance(usage, dict):
+            raise TypeError("memory usage is not an object")
+        return cast(MemoryUsage, usage)
     except TypeError as error:
         raise _invalid("memory usage", error) from error
 
 
 def parse_cpu_usage(text: str) -> CpuUsage:
+    """Parse firmware CPU jiffies and normalize each usage field to percent."""
     try:
-        return _decode_json("{" + text[14:], "CPU usage")
-    except TypeError as error:
+        usage = _decode_json("{" + text[14:], "CPU usage")
+        if not isinstance(usage, dict):
+            raise TypeError("CPU usage is not an object")
+        for key, value in list(usage.items()):
+            if not key.startswith("cpu") or not key.endswith("_usage"):
+                continue
+            total_key = f"{key[:-6]}_total"
+            total = int(usage[total_key])
+            if total <= 0:
+                raise ValueError("CPU total must be positive")
+            usage[key] = round(int(value) * 100 / total, 1)
+        return cast(CpuUsage, usage)
+    except (KeyError, TypeError, ValueError) as error:
         raise _invalid("CPU usage", error) from error
 
 
@@ -67,27 +80,32 @@ def parse_network_counters(text: str, operation: str) -> dict[str, str]:
         raise _invalid(operation, error) from error
 
 
+def counter_to_megabits(counter: str) -> float:
+    """Convert ASUS byte counter encoded as hexadecimal to Mbit."""
+    try:
+        return round(int(counter, base=16) * 8 / 1024 / 1024, 1)
+    except (TypeError, ValueError) as error:
+        raise _invalid("network counter", error) from error
+
+
 def parse_traffic_totals(text: str) -> TrafficTotals:
     counters = parse_network_counters(text, "total traffic")
-    try:
-        return {
-            "sent": int(counters["INTERNET_tx"], base=16) * 8 / 1024 / 1024 / 2,
-            "recv": int(counters["INTERNET_rx"], base=16) * 8 / 1024 / 1024 / 2,
-        }
-    except ValueError as error:
-        raise _invalid("total traffic", error) from error
+    return {
+        "sent": counter_to_megabits(counters["INTERNET_tx"]),
+        "recv": counter_to_megabits(counters["INTERNET_rx"]),
+    }
 
 
 def parse_wan_status(text: str) -> WanStatus:
-    status: WanStatus = {}
+    status: dict[str, str] = {}
     try:
         for line in text.split("\n"):
             if "return" in line and "wanlink_" in line:
                 key = line.partition("(")[0].partition("_")[2]
                 value = line.rpartition(" ")[-1].rstrip(";").strip("'\"")
-                if key:
+                if key in WanStatus.__annotations__:
                     status[key] = value
-        return status
+        return cast(WanStatus, status)
     except (AttributeError, TypeError) as error:
         raise _invalid("WAN status", error) from error
 

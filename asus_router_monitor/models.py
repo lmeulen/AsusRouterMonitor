@@ -15,10 +15,12 @@ class MemoryUsage(TypedDict):
 
 
 class CpuUsage(TypedDict, total=False):
+    """CPU use as percent; ``cpuN_total`` remains raw firmware jiffies."""
+
     cpu1_total: str
-    cpu1_usage: str
+    cpu1_usage: float
     cpu2_total: str
-    cpu2_usage: str
+    cpu2_usage: float
 
 
 class TrafficTotals(TypedDict):

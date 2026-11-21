@@ -1,5 +1,6 @@
 """Tools for monitoring Asus routers."""
 
+from .client import AsusRouterClient
 from .exceptions import (
     AuthenticationError,
     RouterConfigurationError,
@@ -10,16 +11,15 @@ from .exceptions import (
     RouterTLSError,
     UnsupportedFirmwareError,
 )
-from .client import AsusRouterClient
 from .models import (
     ClientCounts,
     ClientInfo,
     CpuUsage,
     MemoryUsage,
+    RouterSnapshot,
     Traffic,
     TrafficRate,
     TrafficTotals,
-    RouterSnapshot,
     Uptime,
     WanStatus,
 )

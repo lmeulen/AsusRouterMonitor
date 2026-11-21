@@ -3,6 +3,7 @@ from unittest.mock import patch
 
 import pytest
 
+import ShowRouterInfo
 from asus_router_monitor import (
     AuthenticationError,
     RouterConfigurationError,
@@ -10,8 +11,6 @@ from asus_router_monitor import (
     RouterResponseError,
     UnsupportedFirmwareError,
 )
-
-import ShowRouterInfo
 
 
 def test_parse_args_reads_router_credentials():
@@ -71,9 +70,7 @@ def test_main_passes_arguments_to_router_info():
     with patch("ShowRouterInfo.RouterInfo") as router_info:
         ShowRouterInfo.main(["router.local", "admin", "secret"])
 
-    router_info.assert_called_once_with(
-        "router.local", "admin", "secret", verify=True, timeout=10
-    )
+    router_info.assert_called_once_with("router.local", "admin", "secret", verify=True, timeout=10)
 
 
 def test_main_outputs_stable_json_status_document(capsys):
@@ -115,9 +112,9 @@ def test_main_outputs_stable_json_status_document(capsys):
 
 def test_main_json_uses_null_for_unsupported_cpu_temperature(capsys):
     with patch("ShowRouterInfo._collect_status", return_value={"cpu_temperature": None}):
-        ShowRouterInfo._show_status(ShowRouterInfo.parse_args([
-            "router.local", "admin", "secret", "--format", "json"
-        ]))
+        ShowRouterInfo._show_status(
+            ShowRouterInfo.parse_args(["router.local", "admin", "secret", "--format", "json"])
+        )
 
     assert json.loads(capsys.readouterr().out) == {"cpu_temperature": None}
 
@@ -137,22 +134,61 @@ def test_main_shows_connected_client_counts(capsys):
         ShowRouterInfo.main(["router.local", "admin", "secret"])
 
     output = capsys.readouterr().out
-    assert "Connected Clients       : 8" in output
-    assert "Connected Wired         : 2" in output
-    assert "Connected Wireless      : 5" in output
-    assert "Connected WiFi 2.4 GHz  : 3" in output
-    assert "Connected WiFi 5 GHz    : 2" in output
-    assert "Connected Unknown       : 1" in output
+    assert "Connected clients" in output
+    assert "Total:" in output and "8" in output
+    assert "Wired:" in output and "2" in output
+    assert "Wireless:" in output and "5" in output
+    assert "Wi-Fi 2.4 GHz:" in output and "3" in output
+    assert "Wi-Fi 5 GHz:" in output
+    assert "Unknown connection:" in output and "1" in output
+
+
+def test_text_output_has_human_labels_and_units(capsys):
+    status = {
+        "uptime": {"since": "2024-01-01", "uptime": "60"},
+        "uptime_seconds": 60,
+        "memory": {"mem_total": "1024", "mem_used": "512", "mem_free": "512"},
+        "cpu": {"cpu1_usage": "17"},
+        "cpu_temperature": {"cpu_temperature": "42.5"},
+        "traffic_total": {"sent": 1.5, "recv": 2.5},
+        "wan": {"status": "1", "online": True},
+        "settings": {"time_zone": "UTC"},
+        "lan": {"ip_address": "192.0.2.1", "netmask": "255.255.255.0", "gateway": "192.0.2.254"},
+        "client_counts": {
+            "total": 1,
+            "wired": 1,
+            "wireless": 0,
+            "wifi_2_4_ghz": 0,
+            "wifi_5_ghz": 0,
+            "other_wireless": 0,
+            "unknown": 0,
+            "radios": {},
+        },
+        "dhcp_lease_count": 1,
+    }
+    ShowRouterInfo._show_text_status(status)
+
+    output = capsys.readouterr().out
+    assert "Router status" in output
+    assert "Uptime:" in output and "60 seconds" in output
+    assert "Memory total:" in output and "1024 KiB" in output
+    assert "CPU 1 usage:" in output and "17%" in output
+    assert "CPU temperature:" in output and "42.5 °C" in output
+    assert "WAN connected:" in output and "yes" in output
+    assert "Traffic sent since boot:" in output and "1.5 Mbit" in output
+    assert "LAN IP address:" in output
 
 
 def test_main_shows_unavailable_for_unsupported_cpu_temperature(capsys):
     with patch("ShowRouterInfo.RouterInfo") as router_info:
-        router_info.return_value.get_cpu_temperature.side_effect = (
-            UnsupportedFirmwareError("Router firmware does not provide CPU temperature")
+        router_info.return_value.get_cpu_temperature.side_effect = UnsupportedFirmwareError(
+            "Router firmware does not provide CPU temperature"
         )
         ShowRouterInfo.main(["router.local", "admin", "secret"])
 
-    assert "CPU Temperature         : Not available" in capsys.readouterr().out
+    output = capsys.readouterr().out
+    assert "CPU temperature:" in output
+    assert "unavailable" in output
 
 
 def test_main_returns_error_for_cpu_temperature_connection_error(capsys):
@@ -200,9 +236,7 @@ def test_main_debug_reraises_router_error():
 
 def test_main_disables_certificate_verification_when_requested():
     with patch("ShowRouterInfo.RouterInfo") as router_info:
-        ShowRouterInfo.main(
-            ["https://router.local:8443", "admin", "secret", "--insecure"]
-        )
+        ShowRouterInfo.main(["https://router.local:8443", "admin", "secret", "--insecure"])
 
     router_info.assert_called_once_with(
         "https://router.local:8443", "admin", "secret", verify=False, timeout=10

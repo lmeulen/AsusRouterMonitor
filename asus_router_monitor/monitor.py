@@ -1,13 +1,14 @@
 """High-level Asus router monitoring service."""
 
-from datetime import datetime, timezone
 import time
+from datetime import datetime, timezone
 from typing import Any
 
 from .client import AsusRouterClient
 from .exceptions import UnsupportedFirmwareError
 from .models import ClientCounts, RouterSnapshot, Traffic
 from .parsers import (
+    counter_to_megabits,
     parse_client_list,
     parse_cpu_temperature,
     parse_cpu_usage,
@@ -21,10 +22,24 @@ from .parsers import (
 )
 
 _SETTINGS = (
-    "time_zone", "time_zone_dst", "time_zone_x", "time_zone_dstoff",
-    "ntp_server0", "acs_dfs", "productid", "apps_sq", "lan_hwaddr",
-    "lan_ipaddr", "lan_proto", "x_Setting", "label_mac", "lan_netmask",
-    "lan_gateway", "http_enable", "https_lanport", "wl0_country_code",
+    "time_zone",
+    "time_zone_dst",
+    "time_zone_x",
+    "time_zone_dstoff",
+    "ntp_server0",
+    "acs_dfs",
+    "productid",
+    "apps_sq",
+    "lan_hwaddr",
+    "lan_ipaddr",
+    "lan_proto",
+    "x_Setting",
+    "label_mac",
+    "lan_netmask",
+    "lan_gateway",
+    "http_enable",
+    "https_lanport",
+    "wl0_country_code",
     "wl1_country_code",
 )
 
@@ -54,26 +69,38 @@ class RouterMonitor:
         return parse_traffic_totals(self.client.hook("netdev(appobj)"))
 
     def get_traffic(self, sample_seconds: float = 2) -> Traffic:
+        """Return Mbit totals and Mbit/s rates over a measured sample interval.
+
+        A counter decrease indicates router reboot or counter rollover. Its rate
+        is reported as zero because a reliable wrap size is firmware-specific.
+        """
+        if sample_seconds <= 0:
+            raise ValueError("sample_seconds must be greater than zero")
         first = parse_network_counters(self.client.hook("netdev(appobj)"), "traffic")
+        started = time.monotonic()
         time.sleep(sample_seconds)
         second = parse_network_counters(self.client.hook("netdev(appobj)"), "traffic")
-        total = {
-            "sent": int(second["INTERNET_tx"], 16) * 8 / 1024 / 1024 / 2,
-            "recv": int(second["INTERNET_rx"], 16) * 8 / 1024 / 1024 / 2,
-        }
+        elapsed = time.monotonic() - started
+        if elapsed <= 0:
+            raise RuntimeError("traffic sample interval must be positive")
+        first_tx, first_rx = int(first["INTERNET_tx"], 16), int(first["INTERNET_rx"], 16)
+        second_tx, second_rx = int(second["INTERNET_tx"], 16), int(second["INTERNET_rx"], 16)
         return {
             "speed": {
-                "tx": total["sent"] - int(first["INTERNET_tx"], 16) * 8 / 1024 / 1024 / 2,
-                "rx": total["recv"] - int(first["INTERNET_rx"], 16) * 8 / 1024 / 1024 / 2,
+                "tx": round(max(0, second_tx - first_tx) * 8 / 1024 / 1024 / elapsed, 1),
+                "rx": round(max(0, second_rx - first_rx) * 8 / 1024 / 1024 / elapsed, 1),
             },
-            "total": total,
+            "total": {
+                "sent": counter_to_megabits(second["INTERNET_tx"]),
+                "recv": counter_to_megabits(second["INTERNET_rx"]),
+            },
         }
 
     def get_status_wan(self):
         return parse_wan_status(self.client.hook("wanlink()"))
 
     def is_wan_online(self) -> bool:
-        return self.get_status_wan()["status"] == "1"
+        return str(self.get_status_wan().get("status")) == "1"
 
     def get_settings(self) -> dict[str, str]:
         return {setting: self.get_setting(setting) for setting in _SETTINGS}
@@ -102,17 +129,26 @@ class RouterMonitor:
         return [
             {"mac": client_id}
             for client_id, client in self._client_records().items()
-            if len(client_id) == 17 and isinstance(client, dict)
-            and client.get("isOnline") == "1"
+            if len(client_id) == 17 and isinstance(client, dict) and client.get("isOnline") == "1"
         ]
 
     def get_client_counts(self) -> ClientCounts:
         counts: ClientCounts = {
-            "total": 0, "wired": 0, "wireless": 0, "wifi_2_4_ghz": 0,
-            "wifi_5_ghz": 0, "other_wireless": 0, "unknown": 0, "radios": {},
+            "total": 0,
+            "wired": 0,
+            "wireless": 0,
+            "wifi_2_4_ghz": 0,
+            "wifi_5_ghz": 0,
+            "other_wireless": 0,
+            "unknown": 0,
+            "radios": {},
         }
         for client_id, client in self._client_records().items():
-            if len(client_id) != 17 or not isinstance(client, dict) or client.get("isOnline") != "1":
+            if (
+                len(client_id) != 17
+                or not isinstance(client, dict)
+                or client.get("isOnline") != "1"
+            ):
                 continue
             counts["total"] += 1
             radio = str(client.get("isWL", "")).strip()
@@ -132,7 +168,17 @@ class RouterMonitor:
         return counts
 
     def get_clients_info(self) -> list[dict[str, Any]]:
-        fields = ("name", "nickName", "ip", "mac", "isOnline", "curTx", "curRx", "totalTx", "totalRx")
+        fields = (
+            "name",
+            "nickName",
+            "ip",
+            "mac",
+            "isOnline",
+            "curTx",
+            "curRx",
+            "totalTx",
+            "totalRx",
+        )
         return [
             {field: client.get(field) for field in fields}
             for client_id, client in self._client_records().items()

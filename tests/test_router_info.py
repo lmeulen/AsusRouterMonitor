@@ -34,7 +34,9 @@ def test_package_exports_architecture():
 
 def test_client_authenticates_with_injected_session_and_context_manager():
     session = authenticated_session()
-    with AsusRouterClient("https://router.local:8443", "admin", "secret", session=session) as client:
+    with AsusRouterClient(
+        "https://router.local:8443", "admin", "secret", session=session
+    ) as client:
         assert client.base_url == "https://router.local:8443"
         assert client.app_url == "https://router.local:8443/appGet.cgi"
         assert session.headers["cookie"] == "asus_token=test-token"
@@ -74,7 +76,12 @@ def test_client_reauthenticates_only_once_after_unauthorized_hook():
     unauthorized_error.response = Mock(status_code=401)
     unauthorized.raise_for_status.side_effect = unauthorized_error
     successful = Mock(text="uptime:now(1 secs)")
-    session.post.side_effect = [session.post.return_value, unauthorized, session.post.return_value, successful]
+    session.post.side_effect = [
+        session.post.return_value,
+        unauthorized,
+        session.post.return_value,
+        successful,
+    ]
 
     client = AsusRouterClient("router.local", "admin", "secret", session=session)
     assert client.hook("uptime()") == "uptime:now(1 secs)"
@@ -102,23 +109,51 @@ def monitor_with_hooks(values):
 
 
 def test_monitor_parses_metrics_with_injected_transport():
-    monitor, _ = monitor_with_hooks([
-        "uptime:Thu, 22 Jul 2021(375001 secs)",
-        'x' * 17 + '"mem_total": "1", "mem_free": "0", "mem_used": "1"}',
-        'x' * 14 + '"cpu1_total": "10", "cpu1_usage": "1"}',
-        json.dumps({"netdev": {"INTERNET_tx": "0x40000", "INTERNET_rx": "0x80000"}}),
-    ])
+    monitor, _ = monitor_with_hooks(
+        [
+            "uptime:Thu, 22 Jul 2021(375001 secs)",
+            "x" * 17 + '"mem_total": "1", "mem_free": "0", "mem_used": "1"}',
+            "x" * 14 + '"cpu1_total": "10", "cpu1_usage": "1"}',
+            json.dumps({"netdev": {"INTERNET_tx": "0x40000", "INTERNET_rx": "0x80000"}}),
+        ]
+    )
     assert monitor.get_uptime_secs() == 375001
     assert monitor.get_memory_usage()["mem_total"] == "1"
-    assert monitor.get_cpu_usage()["cpu1_usage"] == "1"
-    assert monitor.get_traffic_total() == {"sent": 1.0, "recv": 2.0}
+    assert monitor.get_cpu_usage()["cpu1_usage"] == 10.0
+    assert monitor.get_traffic_total() == {"sent": 2.0, "recv": 4.0}
+
+
+def test_monitor_traffic_uses_elapsed_time_rounds_and_handles_counter_reset(monkeypatch):
+    client = Mock()
+    client.hook.side_effect = [
+        '{"netdev": {"INTERNET_tx": "0x0", "INTERNET_rx": "0x100000"}}',
+        '{"netdev": {"INTERNET_tx": "0x33333", "INTERNET_rx": "0x0"}}',
+    ]
+    monitor = RouterMonitor(client)
+    monotonic = iter((10.0, 12.0))
+    monkeypatch.setattr("asus_router_monitor.monitor.time.monotonic", lambda: next(monotonic))
+    monkeypatch.setattr("asus_router_monitor.monitor.time.sleep", lambda seconds: None)
+
+    assert monitor.get_traffic(sample_seconds=0.5) == {
+        "speed": {"tx": 0.8, "rx": 0.0},
+        "total": {"sent": 1.6, "recv": 0.0},
+    }
 
 
 def test_monitor_client_domain_methods_handle_partial_records():
-    monitor, _ = monitor_with_hooks([json.dumps({"get_clientlist": {
-        "AA:BB:CC:DD:EE:01": {"isOnline": "1", "isWL": "1", "name": "device"},
-        "invalid": {"isOnline": "1"},
-    }})] * 3)
+    monitor, _ = monitor_with_hooks(
+        [
+            json.dumps(
+                {
+                    "get_clientlist": {
+                        "AA:BB:CC:DD:EE:01": {"isOnline": "1", "isWL": "1", "name": "device"},
+                        "invalid": {"isOnline": "1"},
+                    }
+                }
+            )
+        ]
+        * 3
+    )
     assert monitor.get_online_clients() == [{"mac": "AA:BB:CC:DD:EE:01"}]
     assert monitor.get_client_counts()["wifi_2_4_ghz"] == 1
     assert monitor.get_clients_info()[0]["name"] == "device"
@@ -139,8 +174,8 @@ def test_snapshot_fetches_each_required_source_once_and_keeps_optional_temperatu
     client = Mock()
     client.hook.side_effect = [
         "uptime:now(1 secs)",
-        'x' * 17 + '"mem_total": "1", "mem_free": "0", "mem_used": "1"}',
-        'x' * 14 + '"cpu1_total": "1", "cpu1_usage": "0"}',
+        "x" * 17 + '"mem_total": "1", "mem_free": "0", "mem_used": "1"}',
+        "x" * 14 + '"cpu1_total": "1", "cpu1_usage": "0"}',
         '{"netdev": {"INTERNET_tx": "0x0", "INTERNET_rx": "0x0"}}',
         "wanlink_status() return 1;\n",
         '{"get_clientlist": {}}',
@@ -155,9 +190,18 @@ def test_snapshot_fetches_each_required_source_once_and_keeps_optional_temperatu
 
 
 def test_router_info_is_compatibility_facade(monkeypatch):
-    client = Mock(base_url="http://router", login_url="http://router/login.cgi", app_url="http://router/appGet.cgi", cpu_temperature_url="http://router/ajax_coretmp.asp", verify=True, timeout=10)
+    client = Mock(
+        base_url="http://router",
+        login_url="http://router/login.cgi",
+        app_url="http://router/appGet.cgi",
+        cpu_temperature_url="http://router/ajax_coretmp.asp",
+        verify=True,
+        timeout=10,
+    )
     client.session.headers = {"cookie": "asus_token=test"}
-    monkeypatch.setattr("asus_router_monitor.router_info.AsusRouterClient", Mock(return_value=client))
+    monkeypatch.setattr(
+        "asus_router_monitor.router_info.AsusRouterClient", Mock(return_value=client)
+    )
     router = RouterInfo("router", "admin", "secret")
     router.monitor.get_uptime = Mock(return_value={"since": "now", "uptime": "1"})
     assert router.get_uptime_secs() == 1

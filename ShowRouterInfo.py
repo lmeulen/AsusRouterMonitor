@@ -7,8 +7,8 @@ from asus_router_monitor import (
     RouterConfigurationError,
     RouterConnectionError,
     RouterError,
-    RouterResponseError,
     RouterInfo,
+    RouterResponseError,
     UnsupportedFirmwareError,
 )
 
@@ -20,9 +20,7 @@ EXIT_RESPONSE = 3
 
 def parse_args(argv=None):
     parser = argparse.ArgumentParser(description="Show status information from an Asus router.")
-    parser.add_argument(
-        "address", help="Router hostname, IP address, or HTTP(S) base URL"
-    )
+    parser.add_argument("address", help="Router hostname, IP address, or HTTP(S) base URL")
     parser.add_argument("username", help="Router username")
     parser.add_argument("password", help="Router password")
     tls = parser.add_mutually_exclusive_group()
@@ -35,11 +33,11 @@ def parse_args(argv=None):
     parser.add_argument(
         "--timeout", type=float, default=10, help="Request timeout in seconds (default: 10)"
     )
+    parser.add_argument("--debug", action="store_true", help="Show traceback for router errors")
     parser.add_argument(
-        "--debug", action="store_true", help="Show traceback for router errors"
-    )
-    parser.add_argument(
-        "--format", choices=("text", "json"), default="text",
+        "--format",
+        choices=("text", "json"),
+        default="text",
         help="Output format (default: text)",
     )
     args = parser.parse_args(argv)
@@ -91,34 +89,69 @@ def _collect_status(args):
     }
 
 
+def _value(value, unavailable="unavailable"):
+    return unavailable if value is None else str(value)
+
+
+def _print_field(label, value):
+    print(f"{label:<30} {value}")
+
+
+def _show_text_status(status):
+    memory = status["memory"]
+    cpu = status["cpu"]
+    temperature = status["cpu_temperature"]
+    traffic = status["traffic_total"]
+    wan = status["wan"]
+    lan = status["lan"]
+    client_counts = status["client_counts"]
+
+    print("Router status")
+    print("=============")
+    _print_field("Last reboot:", _value(status["uptime"].get("since")))
+    _print_field("Uptime:", f"{status['uptime_seconds']} seconds")
+    print("\nResources")
+    print("---------")
+    _print_field("Memory total:", f"{_value(memory.get('mem_total'))} KiB")
+    _print_field("Memory used:", f"{_value(memory.get('mem_used'))} KiB")
+    _print_field("Memory free:", f"{_value(memory.get('mem_free'))} KiB")
+    _print_field("CPU 1 usage:", f"{_value(cpu.get('cpu1_usage'))}%")
+    if "cpu2_usage" in cpu:
+        _print_field("CPU 2 usage:", f"{_value(cpu.get('cpu2_usage'))}%")
+    temperature_value = temperature.get("cpu_temperature") if temperature else None
+    temperature_display = (
+        f"{temperature_value} °C" if temperature_value is not None else "unavailable"
+    )
+    _print_field("CPU temperature:", temperature_display)
+    print("\nNetwork")
+    print("-------")
+    _print_field("WAN connected:", "yes" if wan["online"] else "no")
+    _print_field("WAN status:", _value(wan["status"]))
+    _print_field("Traffic sent since boot:", f"{traffic['sent']} Mbit")
+    _print_field("Traffic received since boot:", f"{traffic['recv']} Mbit")
+    _print_field("LAN IP address:", _value(lan["ip_address"]))
+    _print_field("LAN netmask:", _value(lan["netmask"]))
+    _print_field("LAN gateway:", _value(lan["gateway"]))
+    _print_field("Time zone:", _value(status["settings"]["time_zone"]))
+    print("\nConnected clients")
+    print("-----------------")
+    _print_field("Total:", client_counts["total"])
+    _print_field("Wired:", client_counts["wired"])
+    _print_field("Wireless:", client_counts["wireless"])
+    _print_field("Wi-Fi 2.4 GHz:", client_counts["wifi_2_4_ghz"])
+    _print_field("Wi-Fi 5 GHz:", client_counts["wifi_5_ghz"])
+    _print_field("Other Wi-Fi:", client_counts["other_wireless"])
+    _print_field("Unknown connection:", client_counts["unknown"])
+    _print_field("Wireless radios:", _value(client_counts["radios"], "none"))
+    _print_field("DHCP leases:", status["dhcp_lease_count"])
+
+
 def _show_status(args):
     status = _collect_status(args)
     if args.format == "json":
         print(json.dumps(status, indent=2, sort_keys=True))
         return
-
-    print("Last reboot             : " + str(status["uptime"]))
-    print("Uptime                  : " + str(status["uptime_seconds"]))
-    print("Memory                  : " + str(status["memory"]))
-    print("CPU                     : " + str(status["cpu"]))
-    print("CPU Temperature         : " + str(status["cpu_temperature"] or "Not available"))
-    print("Data                    : " + str(status["traffic_total"]))
-    print("WAN ['status']          : " + str(status["wan"]["status"]))
-    print("Online                  : " + str(status["wan"]["online"]))
-    print("Settings ['time_zone']  : " + str(status["settings"]["time_zone"]))
-    print("IP addr                 : " + str(status["lan"]["ip_address"]))
-    print("Netmask                 : " + str(status["lan"]["netmask"]))
-    print("Gateway                 : " + str(status["lan"]["gateway"]))
-    client_counts = status["client_counts"]
-    print("Connected Clients       : " + str(client_counts["total"]))
-    print("Connected Wired         : " + str(client_counts["wired"]))
-    print("Connected Wireless      : " + str(client_counts["wireless"]))
-    print("Connected WiFi 2.4 GHz  : " + str(client_counts["wifi_2_4_ghz"]))
-    print("Connected WiFi 5 GHz    : " + str(client_counts["wifi_5_ghz"]))
-    print("Connected Other WiFi    : " + str(client_counts["other_wireless"]))
-    print("Connected Unknown       : " + str(client_counts["unknown"]))
-    print("Wireless Radios         : " + str(client_counts["radios"]))
-    print("DHCP                    : " + str(status["dhcp_lease_count"]))
+    _show_text_status(status)
 
 
 def main(argv=None):

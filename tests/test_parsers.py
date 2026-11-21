@@ -7,8 +7,10 @@ from asus_router_monitor.exceptions import RouterResponseError, UnsupportedFirmw
 from asus_router_monitor.parsers import (
     parse_client_list,
     parse_cpu_temperature,
+    parse_cpu_usage,
     parse_network_counters,
     parse_nvram_value,
+    parse_traffic_totals,
     parse_uptime,
     parse_wan_status,
 )
@@ -41,16 +43,22 @@ def test_parsers_parse_sanitized_firmware_responses():
     counters = (FIXTURES / "sanitized_network_counters.json").read_text()
 
     assert parse_client_list(client_list) == {
-        "get_clientlist": {
-            "AA:BB:CC:DD:EE:FF": {"name": "device", "isOnline": "1"}
-        }
+        "get_clientlist": {"AA:BB:CC:DD:EE:FF": {"name": "device", "isOnline": "1"}}
     }
     assert parse_network_counters(counters, "traffic") == {
-        "INTERNET_tx": "0x40000", "INTERNET_rx": "0x80000"
+        "INTERNET_tx": "0x40000",
+        "INTERNET_rx": "0x80000",
     }
     assert parse_nvram_value('{"lan_ipaddr": "192.0.2.1"}', "lan_ipaddr") == "192.0.2.1"
     assert parse_wan_status("wanlink_status() return 1;\n") == {"status": "1"}
     assert parse_cpu_temperature('curr_coreTmp = "64.5";') == {"cpu_temperature": "64.5"}
+    assert parse_traffic_totals(counters) == {"sent": 2.0, "recv": 4.0}
+
+
+def test_cpu_usage_normalizes_firmware_jiffies_to_percent():
+    response = "x" * 14 + '"cpu1_total": "6147417", "cpu1_usage": "3073708"}'
+
+    assert parse_cpu_usage(response) == {"cpu1_total": "6147417", "cpu1_usage": 50.0}
 
 
 @pytest.mark.parametrize(

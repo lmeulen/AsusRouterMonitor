@@ -149,19 +149,14 @@ This is an intentional next-major-version API break; no JSON-string compatibilit
 
 Type-checking automation belongs with pending package metadata and CI baseline work; contracts are ready for that integration. `RouterSnapshot` remains deferred to snapshot API work.
 
-### 2.4 Correct traffic calculations
+### 2.4 Correct traffic calculations — Complete
 
-Replace fixed timing assumptions with measured elapsed time using `time.monotonic()`.
-
-Investigate and document router counter units and current unexplained `/ 2` conversion.
-
-**Acceptance criteria**
-
-- Sampling interval configurable.
-- Rate uses actual elapsed seconds.
-- Counter rollover and router reboot handled.
-- Totals do not depend on sample interval.
-- Unit conversion tests use known fixtures.
+- Added configurable sampling with `time.monotonic()` elapsed-time measurement.
+- ASUS `netdev` hexadecimal values are byte counters. Removed erroneous `/ 2`; totals convert bytes to Mbit and rates convert byte deltas to Mbit/s.
+- Public traffic totals and rates round to one decimal place.
+- Counter decreases caused by reboot or unknown rollover report zero rate, never negative throughput.
+- CPU firmware jiffies normalize to percentages, preventing impossible values such as `6147417%`.
+- Tests cover known counter conversion, measured sampling, rounding, and counter reset.
 
 ---
 
@@ -243,21 +238,15 @@ asus-router-monitor status --fields uptime,wan,temperature
 
 Prometheus output and command-specific client-detail output remain future work under subcommands.
 
-### 4.3 Improve human-readable output
+### 4.3 Improve human-readable output — Complete for status output
 
-Use explicit names and units:
+- Replaced ambiguous `Data` and `Online` labels with grouped Router status, Resources, Network, and Connected clients output.
+- Text output displays uptime in seconds, memory in KiB, CPU use in percent, CPU temperature in °C, and traffic totals in Mbit.
+- WAN state displays as `yes` or `no`.
+- Missing CPU temperature displays as `unavailable`, never raw `None`.
+- Added regression test for semantic labels and units.
 
-- WAN connected
-- Uptime duration
-- CPU temperature in degrees Celsius
-- Traffic total in Mbit/MB as documented
-- Traffic rate in Mbit/s
-
-**Acceptance criteria**
-
-- Labels have no ambiguous terms such as `Data` or `Online`.
-- Units shown consistently.
-- Missing values display as `unsupported` or `unavailable`, not raw `None`.
+Traffic-rate display is available through `get_traffic()`; status CLI currently shows totals only.
 
 ### 4.4 Configurable radio mapping
 
