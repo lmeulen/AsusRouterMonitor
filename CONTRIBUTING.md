@@ -2,7 +2,7 @@
 
 ## Setup
 
-Use a local virtual environment named `.venv`:
+Python 3.12 or newer is required. Use a local virtual environment named `.venv`:
 
 ```bash
 virtualenv .venv
