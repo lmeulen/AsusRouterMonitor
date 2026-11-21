@@ -1,6 +1,14 @@
 from unittest.mock import patch
 
-from asus_router_monitor import RouterConnectionError, UnsupportedFirmwareError
+import pytest
+
+from asus_router_monitor import (
+    AuthenticationError,
+    RouterConfigurationError,
+    RouterConnectionError,
+    RouterResponseError,
+    UnsupportedFirmwareError,
+)
 
 import ShowRouterInfo
 
@@ -51,8 +59,8 @@ def test_count_clients_handles_missing_client_list():
     assert ShowRouterInfo.count_clients({}) == 0
 
 
-def test_count_online_clients_decodes_router_json():
-    online_clients = '[{"mac": "AA:BB:CC:DD:EE:01"}, {"mac": "AA:BB:CC:DD:EE:02"}]'
+def test_count_online_clients_accepts_native_list():
+    online_clients = [{"mac": "AA:BB:CC:DD:EE:01"}, {"mac": "AA:BB:CC:DD:EE:02"}]
 
     assert ShowRouterInfo.count_online_clients(online_clients) == 2
 
@@ -99,17 +107,47 @@ def test_main_shows_unavailable_for_unsupported_cpu_temperature(capsys):
     assert "CPU Temperature         : Not available" in capsys.readouterr().out
 
 
-def test_main_does_not_hide_cpu_temperature_connection_error():
+def test_main_returns_error_for_cpu_temperature_connection_error(capsys):
     with patch("ShowRouterInfo.RouterInfo") as router_info:
         router_info.return_value.get_cpu_temperature.side_effect = RouterConnectionError(
             "Unable to request CPU temperature"
         )
-        try:
-            ShowRouterInfo.main(["router.local", "admin", "secret"])
-        except RouterConnectionError:
-            pass
-        else:
-            raise AssertionError("CPU temperature connection error was hidden")
+        assert ShowRouterInfo.main(["router.local", "admin", "secret"]) == 1
+
+    assert "Error: Unable to request CPU temperature" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize(
+    ("error", "expected_code"),
+    [
+        (AuthenticationError("Router rejected username or password"), 1),
+        (RouterConnectionError("Unable to authenticate with router"), 1),
+        (RouterConfigurationError("Router address must use HTTP or HTTPS"), 2),
+        (RouterResponseError("Router returned an invalid response"), 3),
+    ],
+)
+def test_main_returns_documented_error_codes(error, expected_code, capsys):
+    with patch("ShowRouterInfo._show_status", side_effect=error):
+        assert ShowRouterInfo.main(["router.local", "admin", "secret"]) == expected_code
+
+    captured = capsys.readouterr()
+    assert str(error) in captured.err
+    assert captured.out == ""
+
+
+def test_main_returns_zero_on_success():
+    with patch("ShowRouterInfo._show_status"):
+        assert ShowRouterInfo.main(["router.local", "admin", "secret"]) == 0
+
+
+def test_main_debug_reraises_router_error():
+    error = RouterConnectionError("Unable to authenticate with router")
+
+    with patch("ShowRouterInfo._show_status", side_effect=error):
+        with pytest.raises(RouterConnectionError) as raised:
+            ShowRouterInfo.main(["router.local", "admin", "secret", "--debug"])
+
+    assert raised.value is error
 
 
 def test_main_disables_certificate_verification_when_requested():

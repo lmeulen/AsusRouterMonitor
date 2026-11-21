@@ -1,9 +1,6 @@
 import requests
 import base64
-import json
-import re
 import time
-from functools import wraps
 from urllib.parse import urlsplit
 
 from .exceptions import (
@@ -11,25 +8,29 @@ from .exceptions import (
     RouterConfigurationError,
     RouterConnectionError,
     RouterHTTPError,
-    RouterResponseError,
     RouterTLSError,
-    UnsupportedFirmwareError,
 )
-
-
-def _response_error(operation):
-    """Translate malformed firmware payload errors into a safe public error."""
-    def decorator(method):
-        @wraps(method)
-        def wrapped(*args, **kwargs):
-            try:
-                return method(*args, **kwargs)
-            except (AttributeError, IndexError, KeyError, TypeError, ValueError) as error:
-                raise RouterResponseError(
-                    'Router returned an invalid response for {}'.format(operation)
-                ) from error
-        return wrapped
-    return decorator
+from .models import (
+    ClientCounts,
+    CpuUsage,
+    MemoryUsage,
+    Traffic,
+    TrafficTotals,
+    Uptime,
+    WanStatus,
+)
+from .parsers import (
+    parse_client_list,
+    parse_cpu_temperature,
+    parse_cpu_usage,
+    parse_dhcp_leases,
+    parse_memory_usage,
+    parse_network_counters,
+    parse_nvram_value,
+    parse_traffic_totals,
+    parse_uptime,
+    parse_wan_status,
+)
 
 
 class RouterInfo:
@@ -138,22 +139,15 @@ class RouterInfo:
             raise self._request_error('request router data', error) from error
         return response.text
 
-    @_response_error('uptime')
-    def get_uptime(self):
+    def get_uptime(self) -> Uptime:
         """
         Return uptime of the router
         Format: {'since': 'Thu, 22 Jul 2021 14:32:38 +0200', 'uptime': '375001'}
         :returns: JSON with last boot time and uptime in seconds
         """
-        response = self.__get('uptime()')
-        since = response.partition(':')[2].partition('(')[0]
-        uptime = response.partition('(')[2].partition(' ')[0]
-        if not since or not uptime:
-            raise ValueError('uptime fields missing')
-        return {'since': since, 'uptime': uptime}
+        return parse_uptime(self.__get('uptime()'))
 
-    @_response_error('uptime')
-    def get_uptime_secs(self):
+    def get_uptime_secs(self) -> int:
         """
         Return uptime of the router in seconds
         :returns: integer - uptime in seconds
@@ -161,28 +155,23 @@ class RouterInfo:
         r = self.get_uptime()
         return int(r['uptime'])
 
-    @_response_error('memory usage')
-    def get_memory_usage(self):
+    def get_memory_usage(self) -> MemoryUsage:
         """
         Return memory usage of the router
         Format: {'mem_total': '262144', 'mem_free': '107320', 'mem_used': '154824'}
         :returns: JSON with memory variables
         """
-        s = self.__get('memory_usage()')
-        return json.loads('{' + s[17:])
+        return parse_memory_usage(self.__get('memory_usage()'))
 
-    @_response_error('CPU usage')
-    def get_cpu_usage(self):
+    def get_cpu_usage(self) -> CpuUsage:
         """
         Return CPU usage of the router
         Format: {'cpu1_total': '38106047', 'cpu1_usage': '3395512',
                  'cpu2_total': '38106008', 'cpu2_usage': '2384694'}
         :returns: JSON with CPU load statistics
         """
-        s = self.__get('cpu_usage()')
-        return json.loads('{' + s[14:])
+        return parse_cpu_usage(self.__get('cpu_usage()'))
 
-    @_response_error('client list')
     def get_clients_fullinfo(self):
         """
         Obtain a list of all clients
@@ -204,50 +193,47 @@ class RouterInfo:
                                   "ClientAPILevel": "2" }}
         :returns: JSON with list of clents and a list of mac addresses
         """
-        return json.loads(self.__get('get_clientlist()'))
+        return parse_client_list(self.__get('get_clientlist()'))
 
     # Total traffic in Mb/s
-    @_response_error('total traffic')
-    def get_traffic_total(self):
+    def get_traffic_total(self) -> TrafficTotals:
         """
         Get total amount of traffic since last restart (Megabit format)
         Format: {'sent': '15901.92873764038', 'recv': '10926.945571899414'}
         :returns: JSON with sent and received Megabits since last boot
         """
-        meas_2 = json.loads(self.__get('netdev(appobj)'))
-        tx = int(meas_2['netdev']['INTERNET_tx'], base=16) * 8 / 1024 / 1024 / 2
-        rx = int(meas_2['netdev']['INTERNET_rx'], base=16) * 8 / 1024 / 1024 / 2
-        return json.loads('{' + '"sent":"{}", "recv":"{}"'.format(tx, rx) + '}')
+        return parse_traffic_totals(self.__get('netdev(appobj)'))
 
     # Traffic in Mb/s . Megabit per second
     # Note this method has a 2 second delay to calculate current throughput
-    @_response_error('traffic')
-    def get_traffic(self):
+    def get_traffic(self) -> Traffic:
         """
         Get total and current amount of traffic since last restart (Megabit format)
         Note there is a two second delay to determine current traffic
         Format: {"speed": {"tx": 0.13004302978515625, "rx": 4.189826965332031},
                  "total": {"sent": 15902.060073852539, "recv": 10931.135665893555}}
-        :returns: JSON with current up and down stream in Mbit/s and totals since last reboot
+        :returns: Dictionary with current up and down stream in Mbit/s and totals since last reboot
         """
         meas_1 = self.__get('netdev(appobj)')
         time.sleep(2)
         meas_2 = self.__get('netdev(appobj)')
-        meas_1 = json.loads(meas_1)
-        meas_2 = json.loads(meas_2)
-        persec = {}
-        totaldata = {}
-        tx = int(meas_2['netdev']['INTERNET_tx'], base=16) * 8 / 1024 / 1024 / 2
-        totaldata['sent'] = tx
-        tx -= int(meas_1['netdev']['INTERNET_tx'], base=16) * 8 / 1024 / 1024 / 2
-        persec['tx'] = tx
-        rx = int(meas_2['netdev']['INTERNET_rx'], base=16) * 8 / 1024 / 1024 / 2
-        totaldata['recv'] = rx
-        rx -= int(meas_1['netdev']['INTERNET_rx'], base=16) * 8 / 1024 / 1024 / 2
-        persec['rx'] = rx
-        return json.dumps({'speed': persec, 'total': totaldata})
+        first = parse_network_counters(meas_1, 'traffic')
+        second = parse_network_counters(meas_2, 'traffic')
+        try:
+            total = {
+                'sent': int(second['INTERNET_tx'], base=16) * 8 / 1024 / 1024 / 2,
+                'recv': int(second['INTERNET_rx'], base=16) * 8 / 1024 / 1024 / 2,
+            }
+            speed = {
+                'tx': total['sent'] - int(first['INTERNET_tx'], base=16) * 8 / 1024 / 1024 / 2,
+                'rx': total['recv'] - int(first['INTERNET_rx'], base=16) * 8 / 1024 / 1024 / 2,
+            }
+        except ValueError as error:
+            from .exceptions import RouterResponseError
+            raise RouterResponseError('Router returned an invalid response for traffic') from error
+        return {'speed': speed, 'total': total}
 
-    def get_status_wan(self):
+    def get_status_wan(self) -> WanStatus:
         """
         Get the status of the WAN connection
         Format: {"status": "1", "statusstr": "'Connected'", "type": "'dhcp'", "ipaddr": "'192.168.1.2'",
@@ -257,17 +243,8 @@ class RouterInfo:
                  "xexpires": "0"}
         :returns: JSON with status information on the WAN connection
         """
-        r = self.__get('wanlink()')
-        status = {}
-        for f in r.split('\n'):
-            if 'return' in f:
-                if 'wanlink_' in f:
-                    key = f.partition('(')[0].partition('_')[2]
-                    value = f.rpartition(' ')[-1][:-2]
-                    status[key] = value
-        return json.loads(json.dumps(status))
+        return parse_wan_status(self.__get('wanlink()'))
 
-    @_response_error('WAN status')
     def is_wan_online(self):
         """
         Returns if the WAN connection in onlise
@@ -276,7 +253,6 @@ class RouterInfo:
         r = self.get_status_wan()
         return r['status'] == '1'
 
-    @_response_error('settings')
     def get_settings(self):
         """
         Get settings from the router
@@ -293,46 +269,45 @@ class RouterInfo:
                   'ntp_server0', 'acs_dfs', 'productid', 'apps_sq', 'lan_hwaddr', 'lan_ipaddr',
                   'lan_proto', 'x_Setting', 'label_mac', 'lan_netmask', 'lan_gateway',
                   'http_enable', 'https_lanport', 'wl0_country_code', 'wl1_country_code']:
-            r = self.__get("nvram_get(" + s + ")")
-            settings[s] = json.loads(r)[s]
+            settings[s] = parse_nvram_value(
+                self.__get("nvram_get(" + s + ")"), s
+            )
         return settings
 
-    @_response_error('LAN IP address')
     def get_lan_ip_address(self):
         """
         Obtain the IP address of the router
         :return: IP address
         """
-        r = self.__get("nvram_get(lan_ipaddr)")
-        return json.loads(r)['lan_ipaddr']
+        return parse_nvram_value(
+            self.__get("nvram_get(lan_ipaddr)"), 'lan_ipaddr'
+        )
 
-    @_response_error('LAN netmask')
     def get_lan_netmask(self):
         """
         Obtain the Netmask for the LAN network
         :return: Netmask
         """
-        r = self.__get("nvram_get(lan_netmask)")
-        return json.loads(r)['lan_netmask']
+        return parse_nvram_value(
+            self.__get("nvram_get(lan_netmask)"), 'lan_netmask'
+        )
 
-    @_response_error('LAN gateway')
     def get_lan_gateway(self):
         """
         Obtain the gateway for the LAN network
         :return: IP address of gateay
         """
-        r = self.__get("nvram_get(lan_gateway)")
-        return json.loads(r)['lan_gateway']
+        return parse_nvram_value(
+            self.__get("nvram_get(lan_gateway)"), 'lan_gateway'
+        )
 
-    @_response_error('DHCP leases')
     def get_dhcp_list(self):
         """
         Obtain a list of DHCP leases
         Format: { "dhcpLeaseMacList":[["00:00:00:00:00:00", "name"], ...]
         :returns: JSON with a list of DHCP leases
         """
-        r = self.__get("dhcpLeaseMacList()")
-        return json.loads(r)
+        return parse_dhcp_leases(self.__get("dhcpLeaseMacList()"))
 
     def _get_clientlist(self):
         """Return client records, or an empty dictionary for an invalid response."""
@@ -346,7 +321,7 @@ class RouterInfo:
         """
         Obtain a list of MAC-addresses from online clients
         Format: [{"mac": "00:00:00:00:00:00"}, ...]
-        :returns: JSON list with MAC addresses
+        :returns: List of dictionaries with MAC addresses
         """
         clients = self._get_clientlist()
         online = [
@@ -356,9 +331,9 @@ class RouterInfo:
             and isinstance(client, dict)
             and client.get('isOnline') == '1'
         ]
-        return json.dumps(online)
+        return online
 
-    def get_client_counts(self):
+    def get_client_counts(self) -> ClientCounts:
         """
         Count online clients by wired connection and wireless radio.
 
@@ -445,13 +420,4 @@ class RouterInfo:
         except requests.RequestException as error:
             raise self._request_error('request CPU temperature', error) from error
 
-        match = re.search(
-            r'(?:curr_coreTmp|coreTmp|cpu_temperature)\s*=\s*["\']?(-?\d+(?:\.\d+)?)',
-            response.text,
-            re.IGNORECASE,
-        )
-        if not match:
-            raise UnsupportedFirmwareError(
-                'Router firmware does not provide CPU temperature'
-            )
-        return {"cpu_temperature": match.group(1)}
+        return parse_cpu_temperature(response.text)

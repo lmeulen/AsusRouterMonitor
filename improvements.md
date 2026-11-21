@@ -20,7 +20,7 @@
 - Connected-client counts available by wired, wireless, best-effort band, and radio ID.
 - `RouterInfo` now lives in `asus_router_monitor`; public imports use `from asus_router_monitor import RouterInfo`.
 - Public exception hierarchy added for configuration, authentication, connection, TLS, HTTP, response, and unsupported-firmware errors.
-- 37 tests pass.
+- 51 tests pass.
 - Ruff reports no lint errors.
 - No package metadata, CI, license, type checking, coverage reporting, or release process.
 
@@ -97,20 +97,19 @@ Base64 credentials over HTTP are not encrypted.
 - HTTPS remains certificate-verified by default.
 - `--insecure` retains strong warning and trusted-LAN-only wording.
 
-### 1.4 Add stable CLI exit codes
+### 1.4 Add stable CLI exit codes — Complete
 
-Proposed codes:
+**Implemented**
 
-- `0`: success
-- `1`: connection or authentication failure
-- `2`: CLI usage error
-- `3`: unsupported metric/firmware response
-- `4`: partial snapshot, if partial results are enabled
+- `0`: status collected successfully.
+- `1`: connection or authentication failure.
+- `2`: invalid CLI argument or router configuration.
+- `3`: unsupported metric or malformed firmware response.
+- Router errors print concise diagnostics to stderr; successful status output remains on stdout.
+- `--debug` re-raises router errors so Python displays a traceback.
+- Added tests for each return code, stdout/stderr separation, and debug re-raise behavior.
 
-**Acceptance criteria**
-
-- Exit codes documented and tested.
-- Tracebacks hidden by default, available under `--debug`.
+`4` remains reserved for a future partial-snapshot mode; current CLI fails whole command rather than returning partial results.
 
 ---
 
@@ -118,64 +117,37 @@ Proposed codes:
 
 ### 2.1 Return Python values consistently
 
-Change methods returning JSON strings to native values:
+### 2.1 Return Python values consistently — Complete
+
+**Implemented**
 
 - `get_online_clients()` returns `list[dict]`.
-- `get_traffic()` returns `dict` or typed model.
+- `get_traffic()` returns `dict` with `speed` and `total` mappings.
+- `get_traffic_total()` returns a dictionary with numeric `sent` and `recv` values.
+- Removed manual JSON construction and serialization from these library methods.
+- Updated CLI helpers and tests to consume native values.
+- Documented breaking return-type changes and caller-side JSON serialization in README.
 
-Remove unnecessary JSON round trips and manual JSON construction.
+This is an intentional next-major-version API break; no JSON-string compatibility layer is retained.
 
-**Compatibility options**
+### 2.2 Extract pure response parsers — Complete
 
-- Preferred: release as version 2.0.
-- Alternative: add native methods first, deprecate JSON-string behavior, remove in later major version.
+**Implemented**
 
-**Acceptance criteria**
+- Added side-effect-free `asus_router_monitor.parsers` functions for uptime, memory, CPU, network counters, traffic totals, WAN status, client lists, DHCP leases, NVRAM values, and CPU temperature.
+- `RouterInfo` now delegates firmware text decoding to this module; it retains transport and compatibility-facade responsibilities.
+- Malformed data raises `RouterResponseError`; absent CPU telemetry raises `UnsupportedFirmwareError`.
+- Added parser unit tests with sanitized fixture files. Fixtures contain no router credentials, tokens, public addresses, SSIDs, or identifying hostnames.
 
-- Public method return types documented.
-- JSON serialization occurs only in CLI/exporters.
-- Deprecations have tests and migration notes.
+### 2.3 Add typed models — Complete
 
-### 2.2 Extract pure response parsers
+**Implemented**
 
-Create parser functions/modules for:
+- Added and publicly exported `TypedDict` contracts: `Uptime`, `MemoryUsage`, `CpuUsage`, `TrafficTotals`, `TrafficRate`, `Traffic`, `WanStatus`, `ClientInfo`, and `ClientCounts`.
+- Added return annotations to primary `RouterInfo` metric methods.
+- README documents imports and traffic units (megabits).
 
-- Uptime
-- Memory usage
-- CPU usage
-- Network counters
-- WAN status
-- Client list
-- DHCP leases
-- NVRAM values
-- CPU temperature
-
-**Acceptance criteria**
-
-- Parsers accept text and return typed Python values.
-- Empty, malformed, and unsupported responses raise `RouterResponseError` or `UnsupportedFirmwareError`.
-- Parsers have no network side effects.
-- Tests use sanitized firmware fixtures.
-
-### 2.3 Add typed models
-
-Use dataclasses or `TypedDict` for stable contracts, including:
-
-- `Uptime`
-- `MemoryUsage`
-- `CpuUsage`
-- `TrafficTotals`
-- `TrafficRate`
-- `WanStatus`
-- `ClientInfo`
-- `ClientCounts`
-- `RouterSnapshot`
-
-**Acceptance criteria**
-
-- Public types are importable and documented.
-- Type checking runs in CI.
-- Units are explicit in field names or documentation.
+Type-checking automation belongs with pending package metadata and CI baseline work; contracts are ready for that integration. `RouterSnapshot` remains deferred to snapshot API work.
 
 ### 2.4 Correct traffic calculations
 

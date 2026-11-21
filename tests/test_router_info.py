@@ -168,7 +168,7 @@ def test_get_traffic_total_converts_hex_bytes_to_megabits():
         json.dumps({"netdev": {"INTERNET_tx": "0x40000", "INTERNET_rx": "0x80000"}})
     )
 
-    assert router.get_traffic_total() == {"sent": "1.0", "recv": "2.0"}
+    assert router.get_traffic_total() == {"sent": 1.0, "recv": 2.0}
 
 
 def test_get_clients_info_returns_only_online_mac_entries():
@@ -213,7 +213,7 @@ def test_client_methods_handle_missing_clientlist():
         router = RouterInfo.__new__(RouterInfo)
         router.get_clients_fullinfo = Mock(return_value=response)
 
-        assert router.get_online_clients() == "[]"
+        assert router.get_online_clients() == []
         assert router.get_clients_info() == []
         assert router.get_client_info("AA:BB:CC:DD:EE:FF") is None
 
@@ -280,7 +280,7 @@ def test_client_methods_handle_partial_client_records():
         }
     )
 
-    assert json.loads(router.get_online_clients()) == [
+    assert router.get_online_clients() == [
         {"mac": "AA:BB:CC:DD:EE:01"}
     ]
     assert router.get_clients_info() == [
@@ -422,6 +422,25 @@ def test_exception_messages_do_not_expose_secrets():
                 assert secret not in message
         else:
             raise AssertionError("invalid login response did not raise")
+
+
+def test_get_traffic_returns_native_dictionary():
+    router = RouterInfo.__new__(RouterInfo)
+    router._RouterInfo__get = Mock(
+        side_effect=[
+            json.dumps({"netdev": {"INTERNET_tx": "0x40000", "INTERNET_rx": "0x80000"}}),
+            json.dumps({"netdev": {"INTERNET_tx": "0x80000", "INTERNET_rx": "0xc0000"}}),
+        ]
+    )
+
+    with patch("asus_router_monitor.router_info.time.sleep"):
+        result = router.get_traffic()
+
+    assert result == {
+        "speed": {"tx": 1.0, "rx": 1.0},
+        "total": {"sent": 2.0, "recv": 3.0},
+    }
+    assert isinstance(result, dict)
 
 
 def test_get_client_info_returns_requested_client():

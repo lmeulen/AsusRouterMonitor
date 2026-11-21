@@ -1,7 +1,20 @@
 import argparse
-import json
+import sys
 
-from asus_router_monitor import RouterInfo, UnsupportedFirmwareError
+from asus_router_monitor import (
+    AuthenticationError,
+    RouterConfigurationError,
+    RouterConnectionError,
+    RouterError,
+    RouterResponseError,
+    RouterInfo,
+    UnsupportedFirmwareError,
+)
+
+EXIT_SUCCESS = 0
+EXIT_CONNECTION_OR_AUTH = 1
+EXIT_USAGE = 2
+EXIT_RESPONSE = 3
 
 
 def parse_args(argv=None):
@@ -21,6 +34,9 @@ def parse_args(argv=None):
     parser.add_argument(
         "--timeout", type=float, default=10, help="Request timeout in seconds (default: 10)"
     )
+    parser.add_argument(
+        "--debug", action="store_true", help="Show traceback for router errors"
+    )
     args = parser.parse_args(argv)
     if args.timeout <= 0:
         parser.error("--timeout must be greater than zero")
@@ -33,13 +49,10 @@ def count_clients(full_info):
 
 
 def count_online_clients(online_clients):
-    if isinstance(online_clients, str):
-        online_clients = json.loads(online_clients)
     return len(online_clients)
 
 
-def main(argv=None):
-    args = parse_args(argv)
+def _show_status(args):
     verify = args.ca_bundle if args.ca_bundle else not args.insecure
     ri = RouterInfo(
         args.address,
@@ -76,5 +89,32 @@ def main(argv=None):
     print("DHCP                    : " + str(len(ri.get_dhcp_list())))
 
 
+def main(argv=None):
+    args = parse_args(argv)
+    try:
+        _show_status(args)
+    except (AuthenticationError, RouterConnectionError) as error:
+        if args.debug:
+            raise
+        print("Error: {}".format(error), file=sys.stderr)
+        return EXIT_CONNECTION_OR_AUTH
+    except RouterConfigurationError as error:
+        if args.debug:
+            raise
+        print("Error: {}".format(error), file=sys.stderr)
+        return EXIT_USAGE
+    except RouterResponseError as error:
+        if args.debug:
+            raise
+        print("Error: {}".format(error), file=sys.stderr)
+        return EXIT_RESPONSE
+    except RouterError:
+        if args.debug:
+            raise
+        print("Error: Unexpected router error", file=sys.stderr)
+        return EXIT_CONNECTION_OR_AUTH
+    return EXIT_SUCCESS
+
+
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

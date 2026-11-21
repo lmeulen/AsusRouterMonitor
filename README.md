@@ -42,6 +42,17 @@ python3 ShowRouterInfo.py https://192.168.1.1:8443 admin secret --insecure
 
 `--insecure` permits man-in-the-middle attacks. Prefer a CA bundle. Set request timeout with `--timeout SECONDS` (default: 10). WAN access is unsupported; use this tool only from a trusted LAN or through a VPN.
 
+## CLI exit codes
+
+`ShowRouterInfo.py` prints normal status output to stdout and errors to stderr. Exit codes:
+
+- `0`: status collected successfully
+- `1`: connection or authentication failure
+- `2`: invalid CLI argument or router configuration
+- `3`: unsupported router metric or malformed firmware response
+
+Use `--debug` to re-raise router errors and show a traceback.
+
 The following methods are available:
 ```
 get_uptime           - Uptime and last time of boot
@@ -54,20 +65,28 @@ get_clients_fullinfo - All info of all connected clients
 get_client_counts    - Online client counts by connection and wireless radio
 get_clients_info     - Get most important info on all clients
 get_client_info(cid) - Get info of specified client (MAC address)
-get_traffic_total    - Total network usage since last boot
-get_traffic          - Current network usage and total usage
+get_traffic_total    - Total network usage since last boot (`dict`)
+get_traffic          - Current network usage and total usage (`dict`)
 get_status_wan       - Get WAN status info
 is_wan_online        - WAN connected True/False
 get_lan_ip_address   - Get router IP address for LAN
 get_lan_netmask      - Get network mask for LAN
 get_lan_gateway      - Get gateway address for LAN
 get_dhcp_list        - List of DHCP leases given out
-get_online_clients   - Get list of online clients (MAC address)
+get_online_clients   - Get list of online clients (MAC address; `list[dict]`)
 get_clients_info     - Get most important info on all clients
 get_client_info(cid) - Get info of specified client (MAC address)
 ```
 
 `get_client_counts()` returns exact wired, wireless, unknown, total, and per-radio counts. Band names are best-effort: Asus commonly maps radio `1` to 2.4 GHz and radio `2` to 5 GHz, but this can differ by router model and firmware. Radio `3` and later are reported as `other_wireless` and remain visible in the `radios` mapping.
+
+## Native return values
+
+This next major version returns Python values from all public methods. In particular, `get_online_clients()` now returns `list[dict]`; `get_traffic()` and `get_traffic_total()` return dictionaries with numeric traffic values. Callers needing JSON must serialize at their output boundary, for example `json.dumps(router.get_traffic())`.
+
+## Typed contracts
+
+Public `TypedDict` contracts are importable from `asus_router_monitor`: `Uptime`, `MemoryUsage`, `CpuUsage`, `TrafficTotals`, `TrafficRate`, `Traffic`, `WanStatus`, `ClientInfo`, and `ClientCounts`. Traffic fields use megabits (`sent`, `recv`, `tx`, `rx`); `get_traffic()` supplies aggregate totals and current rates.
 
 ## Error handling
 
