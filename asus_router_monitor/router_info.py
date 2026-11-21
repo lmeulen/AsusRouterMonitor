@@ -3,7 +3,33 @@ import base64
 import json
 import re
 import time
+from functools import wraps
 from urllib.parse import urlsplit
+
+from .exceptions import (
+    AuthenticationError,
+    RouterConfigurationError,
+    RouterConnectionError,
+    RouterHTTPError,
+    RouterResponseError,
+    RouterTLSError,
+    UnsupportedFirmwareError,
+)
+
+
+def _response_error(operation):
+    """Translate malformed firmware payload errors into a safe public error."""
+    def decorator(method):
+        @wraps(method)
+        def wrapped(*args, **kwargs):
+            try:
+                return method(*args, **kwargs)
+            except (AttributeError, IndexError, KeyError, TypeError, ValueError) as error:
+                raise RouterResponseError(
+                    'Router returned an invalid response for {}'.format(operation)
+                ) from error
+        return wrapped
+    return decorator
 
 
 class RouterInfo:
@@ -34,9 +60,11 @@ class RouterInfo:
             address = 'http://' + address
         parsed = urlsplit(address)
         if parsed.scheme not in ('http', 'https') or not parsed.netloc:
-            raise ValueError('Router address must use HTTP or HTTPS')
+            raise RouterConfigurationError('Router address must use HTTP or HTTPS')
         if parsed.path or parsed.query or parsed.fragment:
-            raise ValueError('Router address must not contain a path, query, or fragment')
+            raise RouterConfigurationError(
+                'Router address must not contain a path, query, or fragment'
+            )
         return address
 
     def __authenticate(self, username, password):
@@ -61,18 +89,30 @@ class RouterInfo:
                 timeout=self.timeout,
             )
             response.raise_for_status()
-            r = response.json()
-        except (requests.RequestException, ValueError):
-            return False
-        if "asus_token" in r:
-            token = r['asus_token']
-            self.headers = {
-                'user-agent': "asusrouter-Android-DUTUtil-1.0.0.245",
-                'cookie': 'asus_token={}'.format(token)
-            }
-            return True
-        else:
-            return False
+        except requests.RequestException as error:
+            raise self._request_error('authenticate with router', error) from error
+
+        try:
+            result = response.json()
+        except ValueError as error:
+            raise AuthenticationError('Router returned an invalid login response') from error
+
+        token = result.get('asus_token') if isinstance(result, dict) else None
+        if not token:
+            raise AuthenticationError('Router rejected username or password')
+
+        self.headers = {
+            'user-agent': "asusrouter-Android-DUTUtil-1.0.0.245",
+            'cookie': 'asus_token={}'.format(token)
+        }
+
+    @staticmethod
+    def _request_error(action, error):
+        if isinstance(error, requests.exceptions.SSLError):
+            return RouterTLSError('Unable to {} because TLS validation failed'.format(action))
+        if isinstance(error, requests.exceptions.HTTPError):
+            return RouterHTTPError('Router returned an HTTP error while trying to {}'.format(action))
+        return RouterConnectionError('Unable to {}'.format(action))
 
     def __get(self, command):
         """
@@ -81,34 +121,38 @@ class RouterInfo:
             command : Command to send to the return
         :returns: string result from the router
         """
-        if self.headers:
-            payload = "hook={}".format(command)
-            try:
-                r = requests.post(
-                    url=self.url,
-                    data=payload,
-                    headers=self.headers,
-                    verify=self.verify,
-                    timeout=self.timeout,
-                )
-                r.raise_for_status()
-            except requests.RequestException:
-                return None
-            return r.text
-        else:
-            return None
+        if not self.headers:
+            raise AuthenticationError('Router client is not authenticated')
 
+        payload = "hook={}".format(command)
+        try:
+            response = requests.post(
+                url=self.url,
+                data=payload,
+                headers=self.headers,
+                verify=self.verify,
+                timeout=self.timeout,
+            )
+            response.raise_for_status()
+        except requests.RequestException as error:
+            raise self._request_error('request router data', error) from error
+        return response.text
+
+    @_response_error('uptime')
     def get_uptime(self):
         """
         Return uptime of the router
         Format: {'since': 'Thu, 22 Jul 2021 14:32:38 +0200', 'uptime': '375001'}
         :returns: JSON with last boot time and uptime in seconds
         """
-        r = self.__get('uptime()')
-        since = r.partition(':')[2].partition('(')[0]
-        up = r.partition('(')[2].partition(' ')[0]
-        return json.loads('{' + '"since":"{}", "uptime":"{}"'.format(since, up) + '}')
+        response = self.__get('uptime()')
+        since = response.partition(':')[2].partition('(')[0]
+        uptime = response.partition('(')[2].partition(' ')[0]
+        if not since or not uptime:
+            raise ValueError('uptime fields missing')
+        return {'since': since, 'uptime': uptime}
 
+    @_response_error('uptime')
     def get_uptime_secs(self):
         """
         Return uptime of the router in seconds
@@ -117,6 +161,7 @@ class RouterInfo:
         r = self.get_uptime()
         return int(r['uptime'])
 
+    @_response_error('memory usage')
     def get_memory_usage(self):
         """
         Return memory usage of the router
@@ -126,6 +171,7 @@ class RouterInfo:
         s = self.__get('memory_usage()')
         return json.loads('{' + s[17:])
 
+    @_response_error('CPU usage')
     def get_cpu_usage(self):
         """
         Return CPU usage of the router
@@ -136,6 +182,7 @@ class RouterInfo:
         s = self.__get('cpu_usage()')
         return json.loads('{' + s[14:])
 
+    @_response_error('client list')
     def get_clients_fullinfo(self):
         """
         Obtain a list of all clients
@@ -160,6 +207,7 @@ class RouterInfo:
         return json.loads(self.__get('get_clientlist()'))
 
     # Total traffic in Mb/s
+    @_response_error('total traffic')
     def get_traffic_total(self):
         """
         Get total amount of traffic since last restart (Megabit format)
@@ -173,6 +221,7 @@ class RouterInfo:
 
     # Traffic in Mb/s . Megabit per second
     # Note this method has a 2 second delay to calculate current throughput
+    @_response_error('traffic')
     def get_traffic(self):
         """
         Get total and current amount of traffic since last restart (Megabit format)
@@ -218,6 +267,7 @@ class RouterInfo:
                     status[key] = value
         return json.loads(json.dumps(status))
 
+    @_response_error('WAN status')
     def is_wan_online(self):
         """
         Returns if the WAN connection in onlise
@@ -226,6 +276,7 @@ class RouterInfo:
         r = self.get_status_wan()
         return r['status'] == '1'
 
+    @_response_error('settings')
     def get_settings(self):
         """
         Get settings from the router
@@ -246,6 +297,7 @@ class RouterInfo:
             settings[s] = json.loads(r)[s]
         return settings
 
+    @_response_error('LAN IP address')
     def get_lan_ip_address(self):
         """
         Obtain the IP address of the router
@@ -254,6 +306,7 @@ class RouterInfo:
         r = self.__get("nvram_get(lan_ipaddr)")
         return json.loads(r)['lan_ipaddr']
 
+    @_response_error('LAN netmask')
     def get_lan_netmask(self):
         """
         Obtain the Netmask for the LAN network
@@ -262,6 +315,7 @@ class RouterInfo:
         r = self.__get("nvram_get(lan_netmask)")
         return json.loads(r)['lan_netmask']
 
+    @_response_error('LAN gateway')
     def get_lan_gateway(self):
         """
         Obtain the gateway for the LAN network
@@ -270,6 +324,7 @@ class RouterInfo:
         r = self.__get("nvram_get(lan_gateway)")
         return json.loads(r)['lan_gateway']
 
+    @_response_error('DHCP leases')
     def get_dhcp_list(self):
         """
         Obtain a list of DHCP leases
@@ -372,10 +427,12 @@ class RouterInfo:
     def get_cpu_temperature(self):
         """
         Get CPU temperature reported by supported Asus router firmware.
-        :return: Dictionary with cpu_temperature in degrees Celsius, or None
+        :return: Dictionary with cpu_temperature in degrees Celsius
+        :raises AuthenticationError: If client is not authenticated.
+        :raises UnsupportedFirmwareError: If firmware exposes no CPU temperature.
         """
         if not self.headers:
-            return None
+            raise AuthenticationError('Router client is not authenticated')
 
         try:
             response = requests.get(
@@ -385,8 +442,8 @@ class RouterInfo:
                 timeout=self.timeout,
             )
             response.raise_for_status()
-        except requests.RequestException:
-            return None
+        except requests.RequestException as error:
+            raise self._request_error('request CPU temperature', error) from error
 
         match = re.search(
             r'(?:curr_coreTmp|coreTmp|cpu_temperature)\s*=\s*["\']?(-?\d+(?:\.\d+)?)',
@@ -394,5 +451,7 @@ class RouterInfo:
             re.IGNORECASE,
         )
         if not match:
-            return None
+            raise UnsupportedFirmwareError(
+                'Router firmware does not provide CPU temperature'
+            )
         return {"cpu_temperature": match.group(1)}

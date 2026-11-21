@@ -68,3 +68,18 @@ get_client_info(cid) - Get info of specified client (MAC address)
 ```
 
 `get_client_counts()` returns exact wired, wireless, unknown, total, and per-radio counts. Band names are best-effort: Asus commonly maps radio `1` to 2.4 GHz and radio `2` to 5 GHz, but this can differ by router model and firmware. Radio `3` and later are reported as `other_wireless` and remain visible in the `radios` mapping.
+
+## Error handling
+
+The package raises typed errors for invalid configuration, authentication, connection, TLS, HTTP, and unsupported/malformed router responses. Import them from `asus_router_monitor`, for example:
+
+```python
+from asus_router_monitor import AuthenticationError, RouterConnectionError, RouterInfo
+
+try:
+    router = RouterInfo("https://router.local:8443", "admin", "password")
+except AuthenticationError:
+    print("Router rejected credentials")
+except RouterConnectionError:
+    print("Router cannot be reached")
+```

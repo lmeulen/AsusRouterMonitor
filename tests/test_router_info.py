@@ -1,14 +1,26 @@
 import json
 from unittest.mock import Mock, patch
 
+import pytest
 import requests
 
-from asus_router_monitor import RouterInfo
+from asus_router_monitor import (
+    AuthenticationError,
+    RouterConfigurationError,
+    RouterConnectionError,
+    RouterHTTPError,
+    RouterInfo,
+    RouterResponseError,
+    RouterTLSError,
+    UnsupportedFirmwareError,
+)
 from asus_router_monitor.router_info import RouterInfo as RouterInfoImplementation
 
 
-def test_package_exports_router_info():
+def test_package_exports_router_info_and_exceptions():
     assert RouterInfo is RouterInfoImplementation
+    assert issubclass(AuthenticationError, Exception)
+    assert issubclass(RouterConnectionError, Exception)
 
 
 def router_with_response(response):
@@ -68,10 +80,75 @@ def test_router_address_rejects_paths_and_unsupported_schemes():
     for address in ("ftp://router.local", "https://router.local/admin"):
         try:
             RouterInfo(address, "admin", "secret")
-        except ValueError:
+        except RouterConfigurationError:
             pass
         else:
             raise AssertionError("invalid router address was accepted")
+
+
+def test_authentication_rejection_raises_typed_error():
+    response = Mock()
+    response.json.return_value = {}
+
+    with patch(
+        "asus_router_monitor.router_info.requests.post", return_value=response
+    ):
+        try:
+            RouterInfo("192.168.1.1", "admin", "secret")
+        except AuthenticationError as error:
+            assert str(error) == "Router rejected username or password"
+        else:
+            raise AssertionError("authentication rejection did not raise")
+
+
+def test_authentication_connection_error_is_chained():
+    request_error = requests.Timeout("router did not respond")
+
+    with patch(
+        "asus_router_monitor.router_info.requests.post", side_effect=request_error
+    ):
+        try:
+            RouterInfo("192.168.1.1", "admin", "secret")
+        except RouterConnectionError as error:
+            assert str(error) == "Unable to authenticate with router"
+            assert error.__cause__ is request_error
+        else:
+            raise AssertionError("connection failure did not raise")
+
+
+def test_authentication_tls_error_is_chained():
+    request_error = requests.exceptions.SSLError("certificate verify failed")
+
+    with patch(
+        "asus_router_monitor.router_info.requests.post", side_effect=request_error
+    ):
+        try:
+            RouterInfo("https://router.local", "admin", "secret")
+        except RouterTLSError as error:
+            assert error.__cause__ is request_error
+        else:
+            raise AssertionError("TLS failure did not raise")
+
+
+def test_router_hook_http_error_is_chained():
+    router = RouterInfo.__new__(RouterInfo)
+    router.headers = {"cookie": "asus_token=test-token"}
+    router.url = "http://router.local/appGet.cgi"
+    router.verify = True
+    router.timeout = 10
+    response = Mock()
+    request_error = requests.exceptions.HTTPError("500")
+    response.raise_for_status.side_effect = request_error
+
+    with patch(
+        "asus_router_monitor.router_info.requests.post", return_value=response
+    ):
+        try:
+            router._RouterInfo__get("uptime()")
+        except RouterHTTPError as error:
+            assert error.__cause__ is request_error
+        else:
+            raise AssertionError("HTTP failure did not raise")
 
 
 def test_get_uptime_parses_router_response():
@@ -246,7 +323,7 @@ def test_get_cpu_temperature_parses_firmware_response_without_changing_app_url()
     response.raise_for_status.assert_called_once_with()
 
 
-def test_get_cpu_temperature_returns_none_for_unsupported_response():
+def test_get_cpu_temperature_raises_for_unsupported_response():
     router = RouterInfo.__new__(RouterInfo)
     router.cpu_temperature_url = "http://192.168.1.1/ajax_coretmp.asp"
     router.headers = {"cookie": "asus_token=test-token"}
@@ -257,7 +334,12 @@ def test_get_cpu_temperature_returns_none_for_unsupported_response():
     with patch(
         "asus_router_monitor.router_info.requests.get", return_value=response
     ):
-        assert router.get_cpu_temperature() is None
+        try:
+            router.get_cpu_temperature()
+        except UnsupportedFirmwareError as error:
+            assert str(error) == "Router firmware does not provide CPU temperature"
+        else:
+            raise AssertionError("unsupported CPU temperature did not raise")
 
 
 def test_get_cpu_temperature_returns_none_on_request_error():
@@ -267,11 +349,79 @@ def test_get_cpu_temperature_returns_none_on_request_error():
     router.verify = True
     router.timeout = 10
 
+    request_error = requests.RequestException("connection failed")
     with patch(
-        "asus_router_monitor.router_info.requests.get",
-        side_effect=requests.RequestException("connection failed"),
+        "asus_router_monitor.router_info.requests.get", side_effect=request_error
     ):
-        assert router.get_cpu_temperature() is None
+        try:
+            router.get_cpu_temperature()
+        except RouterConnectionError as error:
+            assert error.__cause__ is request_error
+        else:
+            raise AssertionError("CPU temperature request failure did not raise")
+
+
+def test_malformed_router_payload_raises_safe_response_error():
+    router = router_with_response('not valid router JSON')
+
+    try:
+        router.get_clients_fullinfo()
+    except RouterResponseError as error:
+        assert str(error) == "Router returned an invalid response for client list"
+        assert isinstance(error.__cause__, ValueError)
+    else:
+        raise AssertionError("malformed payload did not raise")
+
+
+@pytest.mark.parametrize(
+    ("method_name", "response"),
+    [
+        ("get_uptime", "unexpected uptime response"),
+        ("get_memory_usage", "memory_usage({not-json"),
+        ("get_cpu_usage", "cpu_usage({not-json"),
+        ("get_traffic_total", "{}"),
+        ("get_dhcp_list", "not-json"),
+    ],
+)
+def test_malformed_metric_payloads_raise_response_error(method_name, response):
+    router = router_with_response(response)
+
+    with pytest.raises(RouterResponseError) as error:
+        getattr(router, method_name)()
+
+    assert "Router returned an invalid response for" in str(error.value)
+    assert error.value.__cause__ is not None
+
+
+def test_cpu_temperature_requires_authentication():
+    router = RouterInfo.__new__(RouterInfo)
+    router.headers = None
+
+    with pytest.raises(AuthenticationError, match="not authenticated"):
+        router.get_cpu_temperature()
+
+
+def test_exception_messages_do_not_expose_secrets():
+    password = "super-secret-password"
+    token = "router-token"
+    authorization = "login_authorization=encoded-secret"
+    cookie = "asus_token={}".format(token)
+    response = Mock()
+    response.json.side_effect = ValueError(
+        "{} {} {} {}".format(password, authorization, cookie, token)
+    )
+
+    with patch(
+        "asus_router_monitor.router_info.requests.post", return_value=response
+    ):
+        try:
+            RouterInfo("192.168.1.1", "admin", password)
+        except AuthenticationError as error:
+            message = str(error)
+            for secret in (password, authorization, cookie, token):
+                assert secret not in message
+        else:
+            raise AssertionError("invalid login response did not raise")
 
 
 def test_get_client_info_returns_requested_client():

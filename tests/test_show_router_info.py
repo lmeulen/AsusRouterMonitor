@@ -1,5 +1,7 @@
 from unittest.mock import patch
 
+from asus_router_monitor import RouterConnectionError, UnsupportedFirmwareError
+
 import ShowRouterInfo
 
 
@@ -85,6 +87,29 @@ def test_main_shows_connected_client_counts(capsys):
     assert "Connected WiFi 2.4 GHz  : 3" in output
     assert "Connected WiFi 5 GHz    : 2" in output
     assert "Connected Unknown       : 1" in output
+
+
+def test_main_shows_unavailable_for_unsupported_cpu_temperature(capsys):
+    with patch("ShowRouterInfo.RouterInfo") as router_info:
+        router_info.return_value.get_cpu_temperature.side_effect = (
+            UnsupportedFirmwareError("Router firmware does not provide CPU temperature")
+        )
+        ShowRouterInfo.main(["router.local", "admin", "secret"])
+
+    assert "CPU Temperature         : Not available" in capsys.readouterr().out
+
+
+def test_main_does_not_hide_cpu_temperature_connection_error():
+    with patch("ShowRouterInfo.RouterInfo") as router_info:
+        router_info.return_value.get_cpu_temperature.side_effect = RouterConnectionError(
+            "Unable to request CPU temperature"
+        )
+        try:
+            ShowRouterInfo.main(["router.local", "admin", "secret"])
+        except RouterConnectionError:
+            pass
+        else:
+            raise AssertionError("CPU temperature connection error was hidden")
 
 
 def test_main_disables_certificate_verification_when_requested():

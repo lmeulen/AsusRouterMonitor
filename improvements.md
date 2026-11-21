@@ -18,7 +18,9 @@
 - Request timeout configurable.
 - Router status, traffic, settings, clients, and CPU temperature available.
 - Connected-client counts available by wired, wireless, best-effort band, and radio ID.
-- 22 tests pass.
+- `RouterInfo` now lives in `asus_router_monitor`; public imports use `from asus_router_monitor import RouterInfo`.
+- Public exception hierarchy added for configuration, authentication, connection, TLS, HTTP, response, and unsupported-firmware errors.
+- 37 tests pass.
 - Ruff reports no lint errors.
 - No package metadata, CI, license, type checking, coverage reporting, or release process.
 
@@ -36,26 +38,37 @@
 
 ## Phase 1: Security and Failure Clarity
 
-### 1.1 Add explicit exception hierarchy
+### 1.1 Add explicit exception hierarchy — Complete
 
-Create exceptions such as:
+**Implemented**
 
-- `RouterError`
-- `RouterConnectionError`
-- `RouterTLSError`
-- `AuthenticationError`
-- `RouterHTTPError`
-- `RouterResponseError`
-- `UnsupportedFirmwareError`
+- Added public exceptions in `asus_router_monitor.exceptions`:
+  - `RouterError`
+  - `RouterConfigurationError`
+  - `RouterConnectionError`
+  - `RouterTLSError`
+  - `AuthenticationError`
+  - `RouterHTTPError`
+  - `RouterResponseError`
+  - `UnsupportedFirmwareError`
+- Exported exceptions from `asus_router_monitor`.
+- Invalid router address raises `RouterConfigurationError`.
+- Invalid credentials and invalid login JSON raise `AuthenticationError`.
+- Login, hook, and CPU-temperature request failures raise typed connection, TLS, or HTTP exceptions.
+- Request exceptions retain their original cause using `raise ... from error`.
+- Added regression tests for package exports, authentication rejection, timeout, TLS, HTTP errors, and exception chaining.
 
-Replace silent `False` and `None` transport failures with typed exceptions containing safe context. Never include passwords, authorization payloads, cookies, or tokens in messages.
+**Completed follow-up**
 
-**Acceptance criteria**
+- Added parser guards to firmware payload methods. `AttributeError`, `IndexError`, `KeyError`, `TypeError`, and `ValueError` from malformed payloads now raise `RouterResponseError` with failed-operation context and exception chaining.
+- CPU-temperature responses without a recognized telemetry field now raise `UnsupportedFirmwareError` instead of silently returning `None`; `ShowRouterInfo.py` catches that specific expected capability error and displays `CPU Temperature : Not available`.
+- Added regression coverage proving malformed client and metric payloads raise `RouterResponseError`, public exception messages omit passwords, `login_authorization`, `asus_token`, and cookies, and CLI displays unavailable CPU temperature without hiding other error types.
 
-- Invalid credentials fail during construction/login with `AuthenticationError`.
-- Timeout, TLS, connection, HTTP, and malformed-response errors are distinguishable.
-- Original exceptions are chained with `raise ... from error`.
-- Secret-redaction tests exist.
+**Result**
+
+- Configuration, authentication, network, TLS, HTTP, malformed-response, and unsupported-feature failures are represented by documented public exception types.
+- Original exceptions remain chained where applicable.
+- Public exception messages contain operation context only; they do not include secrets.
 
 ### 1.2 Secure credential input
 
