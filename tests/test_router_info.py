@@ -19,6 +19,8 @@ def test_authentication_stores_token_and_app_url():
     with patch("RouterInfo.requests.post", return_value=response) as post:
         router = RouterInfo("192.168.1.1", "admin", "secret")
 
+    assert router.base_url == "http://192.168.1.1"
+    assert router.login_url == "http://192.168.1.1/login.cgi"
     assert router.url == "http://192.168.1.1/appGet.cgi"
     assert router.cpu_temperature_url == "http://192.168.1.1/ajax_coretmp.asp"
     assert router.headers["cookie"] == "asus_token=test-token"
@@ -26,7 +28,41 @@ def test_authentication_stores_token_and_app_url():
         url="http://192.168.1.1/login.cgi",
         data="login_authorization=YWRtaW46c2VjcmV0",
         headers={"user-agent": "asusrouter-Android-DUTUtil-1.0.0.245"},
+        verify=True,
+        timeout=10,
     )
+    response.raise_for_status.assert_called_once_with()
+
+
+def test_https_custom_port_and_ca_bundle_are_used_for_login():
+    response = Mock()
+    response.json.return_value = {"asus_token": "test-token"}
+
+    with patch("RouterInfo.requests.post", return_value=response) as post:
+        router = RouterInfo(
+            "https://router.local:8443/",
+            "admin",
+            "secret",
+            verify="/tmp/router-ca.pem",
+            timeout=3,
+        )
+
+    assert router.base_url == "https://router.local:8443"
+    assert router.url == "https://router.local:8443/appGet.cgi"
+    assert router.cpu_temperature_url == "https://router.local:8443/ajax_coretmp.asp"
+    assert post.call_args.kwargs["url"] == "https://router.local:8443/login.cgi"
+    assert post.call_args.kwargs["verify"] == "/tmp/router-ca.pem"
+    assert post.call_args.kwargs["timeout"] == 3
+
+
+def test_router_address_rejects_paths_and_unsupported_schemes():
+    for address in ("ftp://router.local", "https://router.local/admin"):
+        try:
+            RouterInfo(address, "admin", "secret")
+        except ValueError:
+            pass
+        else:
+            raise AssertionError("invalid router address was accepted")
 
 
 def test_get_uptime_parses_router_response():
@@ -131,6 +167,8 @@ def test_get_cpu_temperature_parses_firmware_response_without_changing_app_url()
     router.url = "http://192.168.1.1/appGet.cgi"
     router.cpu_temperature_url = "http://192.168.1.1/ajax_coretmp.asp"
     router.headers = {"cookie": "asus_token=test-token"}
+    router.verify = True
+    router.timeout = 10
     response = Mock(text='curr_coreTmp = "64.568";')
 
     with patch("RouterInfo.requests.get", return_value=response) as get:
@@ -139,7 +177,10 @@ def test_get_cpu_temperature_parses_firmware_response_without_changing_app_url()
     assert result == {"cpu_temperature": "64.568"}
     assert router.url == "http://192.168.1.1/appGet.cgi"
     get.assert_called_once_with(
-        url="http://192.168.1.1/ajax_coretmp.asp", headers=router.headers
+        url="http://192.168.1.1/ajax_coretmp.asp",
+        headers=router.headers,
+        verify=True,
+        timeout=10,
     )
     response.raise_for_status.assert_called_once_with()
 
@@ -148,6 +189,8 @@ def test_get_cpu_temperature_returns_none_for_unsupported_response():
     router = RouterInfo.__new__(RouterInfo)
     router.cpu_temperature_url = "http://192.168.1.1/ajax_coretmp.asp"
     router.headers = {"cookie": "asus_token=test-token"}
+    router.verify = True
+    router.timeout = 10
     response = Mock(text="temperature unavailable")
 
     with patch("RouterInfo.requests.get", return_value=response):
@@ -158,6 +201,8 @@ def test_get_cpu_temperature_returns_none_on_request_error():
     router = RouterInfo.__new__(RouterInfo)
     router.cpu_temperature_url = "http://192.168.1.1/ajax_coretmp.asp"
     router.headers = {"cookie": "asus_token=test-token"}
+    router.verify = True
+    router.timeout = 10
 
     with patch(
         "RouterInfo.requests.get", side_effect=requests.RequestException("connection failed")

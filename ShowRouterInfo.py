@@ -6,10 +6,25 @@ from RouterInfo import RouterInfo
 
 def parse_args(argv=None):
     parser = argparse.ArgumentParser(description="Show status information from an Asus router.")
-    parser.add_argument("ip_address", help="Router IP address or hostname")
+    parser.add_argument(
+        "address", help="Router hostname, IP address, or HTTP(S) base URL"
+    )
     parser.add_argument("username", help="Router username")
     parser.add_argument("password", help="Router password")
-    return parser.parse_args(argv)
+    tls = parser.add_mutually_exclusive_group()
+    tls.add_argument("--ca-bundle", help="CA bundle used to verify router certificate")
+    tls.add_argument(
+        "--insecure",
+        action="store_true",
+        help="Disable HTTPS certificate verification (trusted LAN only)",
+    )
+    parser.add_argument(
+        "--timeout", type=float, default=10, help="Request timeout in seconds (default: 10)"
+    )
+    args = parser.parse_args(argv)
+    if args.timeout <= 0:
+        parser.error("--timeout must be greater than zero")
+    return args
 
 
 def count_clients(full_info):
@@ -25,7 +40,14 @@ def count_online_clients(online_clients):
 
 def main(argv=None):
     args = parse_args(argv)
-    ri = RouterInfo(args.ip_address, args.username, args.password)
+    verify = args.ca_bundle if args.ca_bundle else not args.insecure
+    ri = RouterInfo(
+        args.address,
+        args.username,
+        args.password,
+        verify=verify,
+        timeout=args.timeout,
+    )
     print("Last reboot             : " + str(ri.get_uptime()))
     print("Uptime                  : " + str(ri.get_uptime_secs()))
     print("Memory                  : " + str(ri.get_memory_usage()))

@@ -3,24 +3,43 @@ import base64
 import json
 import re
 import time
+from urllib.parse import urlsplit
 
 
 class RouterInfo:
 
-    def __init__(self, ipaddress, username, password):
+    def __init__(self, address, username, password, verify=True, timeout=10):
         """
-        Create the object and connect with the router
+        Create the object and connect with the router.
         Parameters:
-            ipaddress : IP Address of the router
+            address : Router hostname, IP address, or HTTP(S) base URL
             username : Root user name
             password : Password required to login
+            verify : Verify TLS certificates, or path to a CA bundle
+            timeout : Request timeout in seconds
         """
-        self.url = 'http://{}/appGet.cgi'.format(ipaddress)
-        self.cpu_temperature_url = 'http://{}/ajax_coretmp.asp'.format(ipaddress)
+        self.base_url = self._normalize_base_url(address)
+        self.login_url = self.base_url + '/login.cgi'
+        self.url = self.base_url + '/appGet.cgi'
+        self.cpu_temperature_url = self.base_url + '/ajax_coretmp.asp'
+        self.verify = verify
+        self.timeout = timeout
         self.headers = None
-        self.__authenticate(ipaddress, username, password)
+        self.__authenticate(username, password)
 
-    def __authenticate(self, ipaddress, username, password):
+    @staticmethod
+    def _normalize_base_url(address):
+        address = address.strip().rstrip('/')
+        if '://' not in address:
+            address = 'http://' + address
+        parsed = urlsplit(address)
+        if parsed.scheme not in ('http', 'https') or not parsed.netloc:
+            raise ValueError('Router address must use HTTP or HTTPS')
+        if parsed.path or parsed.query or parsed.fragment:
+            raise ValueError('Router address must not contain a path, query, or fragment')
+        return address
+
+    def __authenticate(self, username, password):
         """
         Authenticate the object with the router
         Parameters:
@@ -34,8 +53,16 @@ class RouterInfo:
             'user-agent': "asusrouter-Android-DUTUtil-1.0.0.245"
         }
         try:
-            r = requests.post(url='http://{}/login.cgi'.format(ipaddress), data=payload, headers=headers).json()
-        except:
+            response = requests.post(
+                url=self.login_url,
+                data=payload,
+                headers=headers,
+                verify=self.verify,
+                timeout=self.timeout,
+            )
+            response.raise_for_status()
+            r = response.json()
+        except (requests.RequestException, ValueError):
             return False
         if "asus_token" in r:
             token = r['asus_token']
@@ -57,8 +84,15 @@ class RouterInfo:
         if self.headers:
             payload = "hook={}".format(command)
             try:
-                r = requests.post(url=self.url, data=payload, headers=self.headers)
-            except:
+                r = requests.post(
+                    url=self.url,
+                    data=payload,
+                    headers=self.headers,
+                    verify=self.verify,
+                    timeout=self.timeout,
+                )
+                r.raise_for_status()
+            except requests.RequestException:
                 return None
             return r.text
         else:
@@ -304,7 +338,12 @@ class RouterInfo:
             return None
 
         try:
-            response = requests.get(url=self.cpu_temperature_url, headers=self.headers)
+            response = requests.get(
+                url=self.cpu_temperature_url,
+                headers=self.headers,
+                verify=self.verify,
+                timeout=self.timeout,
+            )
             response.raise_for_status()
         except requests.RequestException:
             return None

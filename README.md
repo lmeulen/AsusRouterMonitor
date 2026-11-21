@@ -15,17 +15,32 @@ print("Uptime    : {}".format(ri.get_uptime()))
 print("Bandwidth : {}".format(ri.get_traffic()))
 ```
 
-Run the status application with router IP address, username, and password:
-
-```bash
-python3 ShowRouterInfo.py <router-ip> <username> <password>
-```
-
-For example:
+Run the status application with router address, username, and password. A hostname or IP address defaults to HTTP:
 
 ```bash
 python3 ShowRouterInfo.py 192.168.1.1 admin secret
 ```
+
+LAN HTTPS and custom ports are supported with a full base URL:
+
+```bash
+python3 ShowRouterInfo.py https://router.local:8443 admin secret
+```
+
+HTTPS certificates are verified by default. Use a private CA bundle when needed:
+
+```bash
+python3 ShowRouterInfo.py https://router.local:8443 admin secret \
+  --ca-bundle /path/to/router-ca.pem
+```
+
+For a trusted LAN router with a self-signed certificate, verification can be explicitly disabled:
+
+```bash
+python3 ShowRouterInfo.py https://192.168.1.1:8443 admin secret --insecure
+```
+
+`--insecure` permits man-in-the-middle attacks. Prefer a CA bundle. Set request timeout with `--timeout SECONDS` (default: 10). WAN access is unsupported; use this tool only from a trusted LAN or through a VPN.
 
 The following methods are available:
 ```
