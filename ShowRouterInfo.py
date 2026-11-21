@@ -30,6 +30,7 @@ def main(argv=None):
     print("Uptime                  : " + str(ri.get_uptime_secs()))
     print("Memory                  : " + str(ri.get_memory_usage()))
     print("CPU                     : " + str(ri.get_cpu_usage()))
+    print("CPU Temperature         : " + str(ri.get_cpu_temperature()))
     print("Data                    : " + str(ri.get_traffic_total()))
     print("WAN ['status']          : " + str(ri.get_status_wan()['status']))
     print("Online                  : " + str(ri.is_wan_online()))

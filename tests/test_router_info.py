@@ -1,6 +1,8 @@
 import json
 from unittest.mock import Mock, patch
 
+import requests
+
 from RouterInfo import RouterInfo
 
 
@@ -18,6 +20,7 @@ def test_authentication_stores_token_and_app_url():
         router = RouterInfo("192.168.1.1", "admin", "secret")
 
     assert router.url == "http://192.168.1.1/appGet.cgi"
+    assert router.cpu_temperature_url == "http://192.168.1.1/ajax_coretmp.asp"
     assert router.headers["cookie"] == "asus_token=test-token"
     post.assert_called_once_with(
         url="http://192.168.1.1/login.cgi",
@@ -81,6 +84,45 @@ def test_get_clients_info_returns_only_online_mac_entries():
             "totalRx": "4",
         }
     ]
+
+
+def test_get_cpu_temperature_parses_firmware_response_without_changing_app_url():
+    router = RouterInfo.__new__(RouterInfo)
+    router.url = "http://192.168.1.1/appGet.cgi"
+    router.cpu_temperature_url = "http://192.168.1.1/ajax_coretmp.asp"
+    router.headers = {"cookie": "asus_token=test-token"}
+    response = Mock(text='curr_coreTmp = "64.568";')
+
+    with patch("RouterInfo.requests.get", return_value=response) as get:
+        result = router.get_cpu_temperature()
+
+    assert result == {"cpu_temperature": "64.568"}
+    assert router.url == "http://192.168.1.1/appGet.cgi"
+    get.assert_called_once_with(
+        url="http://192.168.1.1/ajax_coretmp.asp", headers=router.headers
+    )
+    response.raise_for_status.assert_called_once_with()
+
+
+def test_get_cpu_temperature_returns_none_for_unsupported_response():
+    router = RouterInfo.__new__(RouterInfo)
+    router.cpu_temperature_url = "http://192.168.1.1/ajax_coretmp.asp"
+    router.headers = {"cookie": "asus_token=test-token"}
+    response = Mock(text="temperature unavailable")
+
+    with patch("RouterInfo.requests.get", return_value=response):
+        assert router.get_cpu_temperature() is None
+
+
+def test_get_cpu_temperature_returns_none_on_request_error():
+    router = RouterInfo.__new__(RouterInfo)
+    router.cpu_temperature_url = "http://192.168.1.1/ajax_coretmp.asp"
+    router.headers = {"cookie": "asus_token=test-token"}
+
+    with patch(
+        "RouterInfo.requests.get", side_effect=requests.RequestException("connection failed")
+    ):
+        assert router.get_cpu_temperature() is None
 
 
 def test_get_client_info_returns_requested_client():

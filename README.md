@@ -33,6 +33,7 @@ get_uptime           - Uptime and last time of boot
 get_uptime_secs      - Uptime
 get_memory_usage     - Memory usage statistics
 get_cpu_usage        - CPU usage statistics
+get_cpu_temperature  - CPU temperature (supported firmware only)
 get_settings         - get set of most important router settings
 get_clients_fullinfo - All info of all connected clients
 get_clients_info     - Get most important info on all clients

@@ -1,6 +1,7 @@
 import requests
 import base64
 import json
+import re
 import time
 
 
@@ -15,6 +16,7 @@ class RouterInfo:
             password : Password required to login
         """
         self.url = 'http://{}/appGet.cgi'.format(ipaddress)
+        self.cpu_temperature_url = 'http://{}/ajax_coretmp.asp'.format(ipaddress)
         self.headers = None
         self.__authenticate(ipaddress, username, password)
 
@@ -294,3 +296,26 @@ class RouterInfo:
             return clnts[clientid]
         else:
             return None
+
+    def get_cpu_temperature(self):
+        """
+        Get CPU temperature reported by supported Asus router firmware.
+        :return: Dictionary with cpu_temperature in degrees Celsius, or None
+        """
+        if not self.headers:
+            return None
+
+        try:
+            response = requests.get(url=self.cpu_temperature_url, headers=self.headers)
+            response.raise_for_status()
+        except requests.RequestException:
+            return None
+
+        match = re.search(
+            r'(?:curr_coreTmp|coreTmp|cpu_temperature)\s*=\s*["\']?(-?\d+(?:\.\d+)?)',
+            response.text,
+            re.IGNORECASE,
+        )
+        if not match:
+            return None
+        return {"cpu_temperature": match.group(1)}
