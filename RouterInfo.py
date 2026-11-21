@@ -245,18 +245,29 @@ class RouterInfo:
         r = self.__get("dhcpLeaseMacList()")
         return json.loads(r)
 
+    def _get_clientlist(self):
+        """Return client records, or an empty dictionary for an invalid response."""
+        response = self.get_clients_fullinfo()
+        if not isinstance(response, dict):
+            return {}
+        clients = response.get('get_clientlist')
+        return clients if isinstance(clients, dict) else {}
+
     def get_online_clients(self):
         """
         Obtain a list of MAC-addresses from online clients
         Format: [{"mac": "00:00:00:00:00:00"}, ...]
         :returns: JSON list with MAC addresses
         """
-        clnts = self.get_clients_fullinfo()
-        lst = []
-        for c in clnts['get_clientlist']:
-            if (len(c) == 17) and ("isOnline" in clnts['get_clientlist'][c]) and (clnts['get_clientlist'][c]['isOnline'] == '1'):
-                lst.append({"mac": c})
-        return json.dumps(lst)
+        clients = self._get_clientlist()
+        online = [
+            {"mac": client_id}
+            for client_id, client in clients.items()
+            if len(client_id) == 17
+            and isinstance(client, dict)
+            and client.get('isOnline') == '1'
+        ]
+        return json.dumps(online)
 
     def get_clients_info(self):
         """
@@ -265,25 +276,16 @@ class RouterInfo:
                   "mac": "AC:84:C6:6C:A7:C0", "isOnline": "1", "curTx": "", "curRx": "", "totalTx": ""}, ...]
         :return: JSON list of clients with main characteristics
         """
-        clnts = self.get_clients_fullinfo()
-        lst = []
-        for c in clnts['get_clientlist']:
-            # Only walk through the mac-addresses, not the additional datafields
-            if (len(c) == 17) and ("isOnline" in clnts['get_clientlist'][c]) and (clnts['get_clientlist'][c]['isOnline'] == '1'):
-                lst.append(
-                    {
-                        "name": clnts['get_clientlist'][c]['name'],
-                        "nickName": clnts['get_clientlist'][c]['nickName'],
-                        "ip": clnts['get_clientlist'][c]['ip'],
-                        "mac": clnts['get_clientlist'][c]['mac'],
-                        "isOnline": clnts['get_clientlist'][c]['isOnline'],
-                        "curTx": clnts['get_clientlist'][c]['curTx'],
-                        "curRx": clnts['get_clientlist'][c]['curRx'],
-                        "totalTx": clnts['get_clientlist'][c]['totalTx'],
-                        "totalRx": clnts['get_clientlist'][c]['totalRx'],
-                    }
-                )
-        return json.loads(json.dumps(lst))
+        clients = self._get_clientlist()
+        fields = ('name', 'nickName', 'ip', 'mac', 'isOnline', 'curTx',
+                  'curRx', 'totalTx', 'totalRx')
+        return [
+            {field: client.get(field) for field in fields}
+            for client_id, client in clients.items()
+            if len(client_id) == 17
+            and isinstance(client, dict)
+            and client.get('isOnline') == '1'
+        ]
 
     def get_client_info(self, clientid):
         """
@@ -291,11 +293,7 @@ class RouterInfo:
         :param clientid: MAC address of the client requested
         :return: JSON with clientinfo (see get_clients_info() for description)
         """
-        clnts = self.get_clients_fullinfo()['get_clientlist']
-        if clientid in clnts:
-            return clnts[clientid]
-        else:
-            return None
+        return self._get_clientlist().get(clientid)
 
     def get_cpu_temperature(self):
         """

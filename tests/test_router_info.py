@@ -86,6 +86,46 @@ def test_get_clients_info_returns_only_online_mac_entries():
     ]
 
 
+def test_client_methods_handle_missing_clientlist():
+    for response in ({}, {"get_clientlist": None}, None, []):
+        router = RouterInfo.__new__(RouterInfo)
+        router.get_clients_fullinfo = Mock(return_value=response)
+
+        assert router.get_online_clients() == "[]"
+        assert router.get_clients_info() == []
+        assert router.get_client_info("AA:BB:CC:DD:EE:FF") is None
+
+
+def test_client_methods_handle_partial_client_records():
+    router = RouterInfo.__new__(RouterInfo)
+    router.get_clients_fullinfo = Mock(
+        return_value={
+            "get_clientlist": {
+                "AA:BB:CC:DD:EE:01": {"name": "phone", "isOnline": "1"},
+                "maclist": ["AA:BB:CC:DD:EE:01"],
+                "ClientAPILevel": "2",
+            }
+        }
+    )
+
+    assert json.loads(router.get_online_clients()) == [
+        {"mac": "AA:BB:CC:DD:EE:01"}
+    ]
+    assert router.get_clients_info() == [
+        {
+            "name": "phone",
+            "nickName": None,
+            "ip": None,
+            "mac": None,
+            "isOnline": "1",
+            "curTx": None,
+            "curRx": None,
+            "totalTx": None,
+            "totalRx": None,
+        }
+    ]
+
+
 def test_get_cpu_temperature_parses_firmware_response_without_changing_app_url():
     router = RouterInfo.__new__(RouterInfo)
     router.url = "http://192.168.1.1/appGet.cgi"
