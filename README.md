@@ -15,6 +15,18 @@ print("Uptime    : {}".format(ri.get_uptime()))
 print("Bandwidth : {}".format(ri.get_traffic()))
 ```
 
+Run the status application with router IP address, username, and password:
+
+```bash
+python3 ShowRouterInfo.py <router-ip> <username> <password>
+```
+
+For example:
+
+```bash
+python3 ShowRouterInfo.py 192.168.1.1 admin secret
+```
+
 The following methods are available:
 ```
 get_uptime           - Uptime and last time of boot

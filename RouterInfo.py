@@ -250,7 +250,6 @@ class RouterInfo:
         :returns: JSON list with MAC addresses
         """
         clnts = self.get_clients_fullinfo()
-        print(clnts)
         lst = []
         for c in clnts['get_clientlist']:
             if (len(c) == 17) and ("isOnline" in clnts['get_clientlist'][c]) and (clnts['get_clientlist'][c]['isOnline'] == '1'):
