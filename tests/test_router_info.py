@@ -3,7 +3,12 @@ from unittest.mock import Mock, patch
 
 import requests
 
-from RouterInfo import RouterInfo
+from asus_router_monitor import RouterInfo
+from asus_router_monitor.router_info import RouterInfo as RouterInfoImplementation
+
+
+def test_package_exports_router_info():
+    assert RouterInfo is RouterInfoImplementation
 
 
 def router_with_response(response):
@@ -16,7 +21,9 @@ def test_authentication_stores_token_and_app_url():
     response = Mock()
     response.json.return_value = {"asus_token": "test-token"}
 
-    with patch("RouterInfo.requests.post", return_value=response) as post:
+    with patch(
+        "asus_router_monitor.router_info.requests.post", return_value=response
+    ) as post:
         router = RouterInfo("192.168.1.1", "admin", "secret")
 
     assert router.base_url == "http://192.168.1.1"
@@ -38,7 +45,9 @@ def test_https_custom_port_and_ca_bundle_are_used_for_login():
     response = Mock()
     response.json.return_value = {"asus_token": "test-token"}
 
-    with patch("RouterInfo.requests.post", return_value=response) as post:
+    with patch(
+        "asus_router_monitor.router_info.requests.post", return_value=response
+    ) as post:
         router = RouterInfo(
             "https://router.local:8443/",
             "admin",
@@ -221,7 +230,9 @@ def test_get_cpu_temperature_parses_firmware_response_without_changing_app_url()
     router.timeout = 10
     response = Mock(text='curr_coreTmp = "64.568";')
 
-    with patch("RouterInfo.requests.get", return_value=response) as get:
+    with patch(
+        "asus_router_monitor.router_info.requests.get", return_value=response
+    ) as get:
         result = router.get_cpu_temperature()
 
     assert result == {"cpu_temperature": "64.568"}
@@ -243,7 +254,9 @@ def test_get_cpu_temperature_returns_none_for_unsupported_response():
     router.timeout = 10
     response = Mock(text="temperature unavailable")
 
-    with patch("RouterInfo.requests.get", return_value=response):
+    with patch(
+        "asus_router_monitor.router_info.requests.get", return_value=response
+    ):
         assert router.get_cpu_temperature() is None
 
 
@@ -255,7 +268,8 @@ def test_get_cpu_temperature_returns_none_on_request_error():
     router.timeout = 10
 
     with patch(
-        "RouterInfo.requests.get", side_effect=requests.RequestException("connection failed")
+        "asus_router_monitor.router_info.requests.get",
+        side_effect=requests.RequestException("connection failed"),
     ):
         assert router.get_cpu_temperature() is None
 

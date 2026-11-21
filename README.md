@@ -8,7 +8,7 @@ on Medium.
 Example usage:
 
 ```
-from RouterInfo import RouterInfo
+from asus_router_monitor import RouterInfo
 
 ri = RouterInfo("<router IP>", "<username>", "<password>")
 print("Uptime    : {}".format(ri.get_uptime()))

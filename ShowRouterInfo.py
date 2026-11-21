@@ -1,7 +1,7 @@
 import argparse
 import json
 
-from RouterInfo import RouterInfo
+from asus_router_monitor import RouterInfo
 
 
 def parse_args(argv=None):
