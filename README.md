@@ -53,6 +53,16 @@ python3 ShowRouterInfo.py https://192.168.1.1:8443 admin secret --insecure
 
 Use `--debug` to re-raise router errors and show a traceback.
 
+## CLI output formats
+
+Text is default. Use stable machine-readable JSON with `--format json`:
+
+```bash
+python3 ShowRouterInfo.py https://router.local:8443 admin secret --format json
+```
+
+JSON stdout is one status object with `uptime`, `uptime_seconds`, `memory`, `cpu`, `cpu_temperature`, `traffic_total`, `wan`, `settings`, `lan`, `client_counts`, and `dhcp_lease_count`. CPU temperature is `null` when firmware does not support it. Errors remain on stderr.
+
 The following methods are available:
 ```
 get_uptime           - Uptime and last time of boot
@@ -83,6 +93,22 @@ get_client_info(cid) - Get info of specified client (MAC address)
 ## Native return values
 
 This next major version returns Python values from all public methods. In particular, `get_online_clients()` now returns `list[dict]`; `get_traffic()` and `get_traffic_total()` return dictionaries with numeric traffic values. Callers needing JSON must serialize at their output boundary, for example `json.dumps(router.get_traffic())`.
+
+## Architecture and snapshots
+
+New code should separate transport from monitoring:
+
+```python
+from asus_router_monitor import AsusRouterClient, RouterMonitor
+
+with AsusRouterClient("https://router.local", "admin", "password") as client:
+    monitor = RouterMonitor(client)
+    snapshot = monitor.get_snapshot()
+```
+
+`AsusRouterClient` owns an authenticated `requests.Session`, supports injection for tests, retries one unauthorized hook request after reauthentication, and closes through `close()` or context-manager use. `RouterMonitor` performs domain operations with pure parsers. `RouterInfo` remains a facade for existing callers.
+
+`get_snapshot()` records a UTC timestamp and fetches each required source once. CPU temperature is optional: unsupported firmware produces `"cpu_temperature": None`; connection and malformed-response failures abort snapshot collection rather than silently returning partial required data.
 
 ## Typed contracts
 

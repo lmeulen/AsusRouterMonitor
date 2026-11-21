@@ -59,6 +59,18 @@ class ClientInfo(TypedDict, total=False):
     totalRx: str
 
 
+class RouterSnapshot(TypedDict, total=False):
+    timestamp: str
+    uptime: Uptime
+    memory: MemoryUsage
+    cpu: CpuUsage
+    cpu_temperature: dict[str, str] | None
+    traffic_total: TrafficTotals
+    wan: WanStatus
+    settings: "RouterSettings"
+    client_counts: "ClientCounts"
+
+
 class ClientCounts(TypedDict):
     total: int
     wired: int

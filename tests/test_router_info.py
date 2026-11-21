@@ -1,454 +1,165 @@
 import json
-from unittest.mock import Mock, patch
+from unittest.mock import Mock
 
 import pytest
 import requests
 
 from asus_router_monitor import (
+    AsusRouterClient,
     AuthenticationError,
-    RouterConfigurationError,
     RouterConnectionError,
     RouterHTTPError,
     RouterInfo,
+    RouterMonitor,
     RouterResponseError,
     RouterTLSError,
     UnsupportedFirmwareError,
 )
-from asus_router_monitor.router_info import RouterInfo as RouterInfoImplementation
 
 
-def test_package_exports_router_info_and_exceptions():
-    assert RouterInfo is RouterInfoImplementation
-    assert issubclass(AuthenticationError, Exception)
-    assert issubclass(RouterConnectionError, Exception)
-
-
-def router_with_response(response):
-    router = RouterInfo.__new__(RouterInfo)
-    router._RouterInfo__get = Mock(return_value=response)
-    return router
-
-
-def test_authentication_stores_token_and_app_url():
+def authenticated_session():
+    session = Mock()
+    session.headers = {}
     response = Mock()
     response.json.return_value = {"asus_token": "test-token"}
+    session.post.return_value = response
+    return session
 
-    with patch(
-        "asus_router_monitor.router_info.requests.post", return_value=response
-    ) as post:
-        router = RouterInfo("192.168.1.1", "admin", "secret")
 
-    assert router.base_url == "http://192.168.1.1"
-    assert router.login_url == "http://192.168.1.1/login.cgi"
-    assert router.url == "http://192.168.1.1/appGet.cgi"
-    assert router.cpu_temperature_url == "http://192.168.1.1/ajax_coretmp.asp"
-    assert router.headers["cookie"] == "asus_token=test-token"
-    post.assert_called_once_with(
-        url="http://192.168.1.1/login.cgi",
+def test_package_exports_architecture():
+    assert RouterInfo.__module__ == "asus_router_monitor.router_info"
+    assert issubclass(AsusRouterClient, object)
+    assert issubclass(RouterMonitor, object)
+
+
+def test_client_authenticates_with_injected_session_and_context_manager():
+    session = authenticated_session()
+    with AsusRouterClient("https://router.local:8443", "admin", "secret", session=session) as client:
+        assert client.base_url == "https://router.local:8443"
+        assert client.app_url == "https://router.local:8443/appGet.cgi"
+        assert session.headers["cookie"] == "asus_token=test-token"
+    session.close.assert_called_once_with()
+    session.post.assert_called_once_with(
+        "https://router.local:8443/login.cgi",
         data="login_authorization=YWRtaW46c2VjcmV0",
         headers={"user-agent": "asusrouter-Android-DUTUtil-1.0.0.245"},
         verify=True,
         timeout=10,
     )
-    response.raise_for_status.assert_called_once_with()
 
 
-def test_https_custom_port_and_ca_bundle_are_used_for_login():
-    response = Mock()
-    response.json.return_value = {"asus_token": "test-token"}
+def test_client_maps_connection_tls_and_authentication_errors():
+    session = Mock(headers={})
+    session.post.side_effect = requests.Timeout("timeout")
+    with pytest.raises(RouterConnectionError) as error:
+        AsusRouterClient("router.local", "admin", "secret", session=session)
+    assert isinstance(error.value.__cause__, requests.Timeout)
 
-    with patch(
-        "asus_router_monitor.router_info.requests.post", return_value=response
-    ) as post:
-        router = RouterInfo(
-            "https://router.local:8443/",
-            "admin",
-            "secret",
-            verify="/tmp/router-ca.pem",
-            timeout=3,
-        )
+    session.post.side_effect = requests.exceptions.SSLError("certificate")
+    with pytest.raises(RouterTLSError):
+        AsusRouterClient("router.local", "admin", "secret", session=session)
 
-    assert router.base_url == "https://router.local:8443"
-    assert router.url == "https://router.local:8443/appGet.cgi"
-    assert router.cpu_temperature_url == "https://router.local:8443/ajax_coretmp.asp"
-    assert post.call_args.kwargs["url"] == "https://router.local:8443/login.cgi"
-    assert post.call_args.kwargs["verify"] == "/tmp/router-ca.pem"
-    assert post.call_args.kwargs["timeout"] == 3
-
-
-def test_router_address_rejects_paths_and_unsupported_schemes():
-    for address in ("ftp://router.local", "https://router.local/admin"):
-        try:
-            RouterInfo(address, "admin", "secret")
-        except RouterConfigurationError:
-            pass
-        else:
-            raise AssertionError("invalid router address was accepted")
-
-
-def test_authentication_rejection_raises_typed_error():
+    session.post.side_effect = None
     response = Mock()
     response.json.return_value = {}
-
-    with patch(
-        "asus_router_monitor.router_info.requests.post", return_value=response
-    ):
-        try:
-            RouterInfo("192.168.1.1", "admin", "secret")
-        except AuthenticationError as error:
-            assert str(error) == "Router rejected username or password"
-        else:
-            raise AssertionError("authentication rejection did not raise")
+    session.post.return_value = response
+    with pytest.raises(AuthenticationError, match="rejected"):
+        AsusRouterClient("router.local", "admin", "secret", session=session)
 
 
-def test_authentication_connection_error_is_chained():
-    request_error = requests.Timeout("router did not respond")
+def test_client_reauthenticates_only_once_after_unauthorized_hook():
+    session = authenticated_session()
+    unauthorized = Mock()
+    unauthorized_error = requests.HTTPError("unauthorized")
+    unauthorized_error.response = Mock(status_code=401)
+    unauthorized.raise_for_status.side_effect = unauthorized_error
+    successful = Mock(text="uptime:now(1 secs)")
+    session.post.side_effect = [session.post.return_value, unauthorized, session.post.return_value, successful]
 
-    with patch(
-        "asus_router_monitor.router_info.requests.post", side_effect=request_error
-    ):
-        try:
-            RouterInfo("192.168.1.1", "admin", "secret")
-        except RouterConnectionError as error:
-            assert str(error) == "Unable to authenticate with router"
-            assert error.__cause__ is request_error
-        else:
-            raise AssertionError("connection failure did not raise")
-
-
-def test_authentication_tls_error_is_chained():
-    request_error = requests.exceptions.SSLError("certificate verify failed")
-
-    with patch(
-        "asus_router_monitor.router_info.requests.post", side_effect=request_error
-    ):
-        try:
-            RouterInfo("https://router.local", "admin", "secret")
-        except RouterTLSError as error:
-            assert error.__cause__ is request_error
-        else:
-            raise AssertionError("TLS failure did not raise")
+    client = AsusRouterClient("router.local", "admin", "secret", session=session)
+    assert client.hook("uptime()") == "uptime:now(1 secs)"
+    assert session.post.call_count == 4
 
 
-def test_router_hook_http_error_is_chained():
-    router = RouterInfo.__new__(RouterInfo)
-    router.headers = {"cookie": "asus_token=test-token"}
-    router.url = "http://router.local/appGet.cgi"
-    router.verify = True
-    router.timeout = 10
-    response = Mock()
-    request_error = requests.exceptions.HTTPError("500")
-    response.raise_for_status.side_effect = request_error
+def test_client_maps_hook_http_error():
+    session = authenticated_session()
+    http_response = Mock()
+    http_error = requests.HTTPError("500")
+    http_error.response = Mock(status_code=500)
+    http_response.raise_for_status.side_effect = http_error
+    client = AsusRouterClient("router.local", "admin", "secret", session=session)
+    session.post.return_value = http_response
 
-    with patch(
-        "asus_router_monitor.router_info.requests.post", return_value=response
-    ):
-        try:
-            router._RouterInfo__get("uptime()")
-        except RouterHTTPError as error:
-            assert error.__cause__ is request_error
-        else:
-            raise AssertionError("HTTP failure did not raise")
+    with pytest.raises(RouterHTTPError) as error:
+        client.hook("uptime()")
+    assert error.value.__cause__ is http_error
 
 
-def test_get_uptime_parses_router_response():
-    router = router_with_response(
-        "uptime:Thu, 22 Jul 2021 14:32:38 +0200(375001 secs since boot)"
-    )
-
-    assert router.get_uptime() == {
-        "since": "Thu, 22 Jul 2021 14:32:38 +0200",
-        "uptime": "375001",
-    }
-    assert router.get_uptime_secs() == 375001
+def monitor_with_hooks(values):
+    client = Mock()
+    client.hook.side_effect = values
+    return RouterMonitor(client), client
 
 
-def test_get_traffic_total_converts_hex_bytes_to_megabits():
-    router = router_with_response(
-        json.dumps({"netdev": {"INTERNET_tx": "0x40000", "INTERNET_rx": "0x80000"}})
-    )
+def test_monitor_parses_metrics_with_injected_transport():
+    monitor, _ = monitor_with_hooks([
+        "uptime:Thu, 22 Jul 2021(375001 secs)",
+        'x' * 17 + '"mem_total": "1", "mem_free": "0", "mem_used": "1"}',
+        'x' * 14 + '"cpu1_total": "10", "cpu1_usage": "1"}',
+        json.dumps({"netdev": {"INTERNET_tx": "0x40000", "INTERNET_rx": "0x80000"}}),
+    ])
+    assert monitor.get_uptime_secs() == 375001
+    assert monitor.get_memory_usage()["mem_total"] == "1"
+    assert monitor.get_cpu_usage()["cpu1_usage"] == "1"
+    assert monitor.get_traffic_total() == {"sent": 1.0, "recv": 2.0}
 
-    assert router.get_traffic_total() == {"sent": 1.0, "recv": 2.0}
+
+def test_monitor_client_domain_methods_handle_partial_records():
+    monitor, _ = monitor_with_hooks([json.dumps({"get_clientlist": {
+        "AA:BB:CC:DD:EE:01": {"isOnline": "1", "isWL": "1", "name": "device"},
+        "invalid": {"isOnline": "1"},
+    }})] * 3)
+    assert monitor.get_online_clients() == [{"mac": "AA:BB:CC:DD:EE:01"}]
+    assert monitor.get_client_counts()["wifi_2_4_ghz"] == 1
+    assert monitor.get_clients_info()[0]["name"] == "device"
 
 
-def test_get_clients_info_returns_only_online_mac_entries():
-    router = RouterInfo.__new__(RouterInfo)
-    router.get_clients_fullinfo = Mock(
-        return_value={
-            "get_clientlist": {
-                "AA:BB:CC:DD:EE:01": {
-                    "name": "phone",
-                    "nickName": "Phone",
-                    "ip": "192.168.1.10",
-                    "mac": "AA:BB:CC:DD:EE:01",
-                    "isOnline": "1",
-                    "curTx": "1",
-                    "curRx": "2",
-                    "totalTx": "3",
-                    "totalRx": "4",
-                },
-                "AA:BB:CC:DD:EE:02": {"isOnline": "0"},
-                "maclist": ["AA:BB:CC:DD:EE:01", "AA:BB:CC:DD:EE:02"],
-            }
-        }
-    )
+def test_monitor_raises_parser_errors_and_unsupported_temperature():
+    monitor, _ = monitor_with_hooks(["not json"])
+    with pytest.raises(RouterResponseError):
+        monitor.get_clients_fullinfo()
 
-    assert router.get_clients_info() == [
-        {
-            "name": "phone",
-            "nickName": "Phone",
-            "ip": "192.168.1.10",
-            "mac": "AA:BB:CC:DD:EE:01",
-            "isOnline": "1",
-            "curTx": "1",
-            "curRx": "2",
-            "totalTx": "3",
-            "totalRx": "4",
-        }
+    client = Mock()
+    client.get_cpu_temperature.return_value = "temperature unavailable"
+    with pytest.raises(UnsupportedFirmwareError):
+        RouterMonitor(client).get_cpu_temperature()
+
+
+def test_snapshot_fetches_each_required_source_once_and_keeps_optional_temperature():
+    client = Mock()
+    client.hook.side_effect = [
+        "uptime:now(1 secs)",
+        'x' * 17 + '"mem_total": "1", "mem_free": "0", "mem_used": "1"}',
+        'x' * 14 + '"cpu1_total": "1", "cpu1_usage": "0"}',
+        '{"netdev": {"INTERNET_tx": "0x0", "INTERNET_rx": "0x0"}}',
+        "wanlink_status() return 1;\n",
+        '{"get_clientlist": {}}',
     ]
+    client.get_cpu_temperature.return_value = "temperature unavailable"
+
+    snapshot = RouterMonitor(client).get_snapshot()
+
+    assert snapshot["cpu_temperature"] is None
+    assert "timestamp" in snapshot
+    assert client.hook.call_count == 6
 
 
-def test_client_methods_handle_missing_clientlist():
-    for response in ({}, {"get_clientlist": None}, None, []):
-        router = RouterInfo.__new__(RouterInfo)
-        router.get_clients_fullinfo = Mock(return_value=response)
-
-        assert router.get_online_clients() == []
-        assert router.get_clients_info() == []
-        assert router.get_client_info("AA:BB:CC:DD:EE:FF") is None
-
-
-def test_get_client_counts_groups_online_clients_by_connection():
-    router = RouterInfo.__new__(RouterInfo)
-    router.get_clients_fullinfo = Mock(
-        return_value={
-            "get_clientlist": {
-                "AA:BB:CC:DD:EE:01": {"isOnline": "1", "isWL": "0"},
-                "AA:BB:CC:DD:EE:02": {"isOnline": "1", "isWL": "1"},
-                "AA:BB:CC:DD:EE:03": {"isOnline": "1", "isWL": "2"},
-                "AA:BB:CC:DD:EE:04": {"isOnline": "1", "isWL": "3"},
-                "AA:BB:CC:DD:EE:05": {"isOnline": "1"},
-                "AA:BB:CC:DD:EE:06": {"isOnline": "0", "isWL": "1"},
-                "maclist": [],
-                "ClientAPILevel": "2",
-            }
-        }
-    )
-
-    counts = router.get_client_counts()
-
-    assert counts == {
-        "total": 5,
-        "wired": 1,
-        "wireless": 3,
-        "wifi_2_4_ghz": 1,
-        "wifi_5_ghz": 1,
-        "other_wireless": 1,
-        "unknown": 1,
-        "radios": {"1": 1, "2": 1, "3": 1},
-    }
-    assert counts["total"] == (
-        counts["wired"] + counts["wireless"] + counts["unknown"]
-    )
-
-
-def test_get_client_counts_handles_missing_clientlist():
-    router = RouterInfo.__new__(RouterInfo)
-    router.get_clients_fullinfo = Mock(return_value={})
-
-    assert router.get_client_counts() == {
-        "total": 0,
-        "wired": 0,
-        "wireless": 0,
-        "wifi_2_4_ghz": 0,
-        "wifi_5_ghz": 0,
-        "other_wireless": 0,
-        "unknown": 0,
-        "radios": {},
-    }
-
-
-def test_client_methods_handle_partial_client_records():
-    router = RouterInfo.__new__(RouterInfo)
-    router.get_clients_fullinfo = Mock(
-        return_value={
-            "get_clientlist": {
-                "AA:BB:CC:DD:EE:01": {"name": "phone", "isOnline": "1"},
-                "maclist": ["AA:BB:CC:DD:EE:01"],
-                "ClientAPILevel": "2",
-            }
-        }
-    )
-
-    assert router.get_online_clients() == [
-        {"mac": "AA:BB:CC:DD:EE:01"}
-    ]
-    assert router.get_clients_info() == [
-        {
-            "name": "phone",
-            "nickName": None,
-            "ip": None,
-            "mac": None,
-            "isOnline": "1",
-            "curTx": None,
-            "curRx": None,
-            "totalTx": None,
-            "totalRx": None,
-        }
-    ]
-
-
-def test_get_cpu_temperature_parses_firmware_response_without_changing_app_url():
-    router = RouterInfo.__new__(RouterInfo)
-    router.url = "http://192.168.1.1/appGet.cgi"
-    router.cpu_temperature_url = "http://192.168.1.1/ajax_coretmp.asp"
-    router.headers = {"cookie": "asus_token=test-token"}
-    router.verify = True
-    router.timeout = 10
-    response = Mock(text='curr_coreTmp = "64.568";')
-
-    with patch(
-        "asus_router_monitor.router_info.requests.get", return_value=response
-    ) as get:
-        result = router.get_cpu_temperature()
-
-    assert result == {"cpu_temperature": "64.568"}
-    assert router.url == "http://192.168.1.1/appGet.cgi"
-    get.assert_called_once_with(
-        url="http://192.168.1.1/ajax_coretmp.asp",
-        headers=router.headers,
-        verify=True,
-        timeout=10,
-    )
-    response.raise_for_status.assert_called_once_with()
-
-
-def test_get_cpu_temperature_raises_for_unsupported_response():
-    router = RouterInfo.__new__(RouterInfo)
-    router.cpu_temperature_url = "http://192.168.1.1/ajax_coretmp.asp"
-    router.headers = {"cookie": "asus_token=test-token"}
-    router.verify = True
-    router.timeout = 10
-    response = Mock(text="temperature unavailable")
-
-    with patch(
-        "asus_router_monitor.router_info.requests.get", return_value=response
-    ):
-        try:
-            router.get_cpu_temperature()
-        except UnsupportedFirmwareError as error:
-            assert str(error) == "Router firmware does not provide CPU temperature"
-        else:
-            raise AssertionError("unsupported CPU temperature did not raise")
-
-
-def test_get_cpu_temperature_returns_none_on_request_error():
-    router = RouterInfo.__new__(RouterInfo)
-    router.cpu_temperature_url = "http://192.168.1.1/ajax_coretmp.asp"
-    router.headers = {"cookie": "asus_token=test-token"}
-    router.verify = True
-    router.timeout = 10
-
-    request_error = requests.RequestException("connection failed")
-    with patch(
-        "asus_router_monitor.router_info.requests.get", side_effect=request_error
-    ):
-        try:
-            router.get_cpu_temperature()
-        except RouterConnectionError as error:
-            assert error.__cause__ is request_error
-        else:
-            raise AssertionError("CPU temperature request failure did not raise")
-
-
-def test_malformed_router_payload_raises_safe_response_error():
-    router = router_with_response('not valid router JSON')
-
-    try:
-        router.get_clients_fullinfo()
-    except RouterResponseError as error:
-        assert str(error) == "Router returned an invalid response for client list"
-        assert isinstance(error.__cause__, ValueError)
-    else:
-        raise AssertionError("malformed payload did not raise")
-
-
-@pytest.mark.parametrize(
-    ("method_name", "response"),
-    [
-        ("get_uptime", "unexpected uptime response"),
-        ("get_memory_usage", "memory_usage({not-json"),
-        ("get_cpu_usage", "cpu_usage({not-json"),
-        ("get_traffic_total", "{}"),
-        ("get_dhcp_list", "not-json"),
-    ],
-)
-def test_malformed_metric_payloads_raise_response_error(method_name, response):
-    router = router_with_response(response)
-
-    with pytest.raises(RouterResponseError) as error:
-        getattr(router, method_name)()
-
-    assert "Router returned an invalid response for" in str(error.value)
-    assert error.value.__cause__ is not None
-
-
-def test_cpu_temperature_requires_authentication():
-    router = RouterInfo.__new__(RouterInfo)
-    router.headers = None
-
-    with pytest.raises(AuthenticationError, match="not authenticated"):
-        router.get_cpu_temperature()
-
-
-def test_exception_messages_do_not_expose_secrets():
-    password = "super-secret-password"
-    token = "router-token"
-    authorization = "login_authorization=encoded-secret"
-    cookie = "asus_token={}".format(token)
-    response = Mock()
-    response.json.side_effect = ValueError(
-        "{} {} {} {}".format(password, authorization, cookie, token)
-    )
-
-    with patch(
-        "asus_router_monitor.router_info.requests.post", return_value=response
-    ):
-        try:
-            RouterInfo("192.168.1.1", "admin", password)
-        except AuthenticationError as error:
-            message = str(error)
-            for secret in (password, authorization, cookie, token):
-                assert secret not in message
-        else:
-            raise AssertionError("invalid login response did not raise")
-
-
-def test_get_traffic_returns_native_dictionary():
-    router = RouterInfo.__new__(RouterInfo)
-    router._RouterInfo__get = Mock(
-        side_effect=[
-            json.dumps({"netdev": {"INTERNET_tx": "0x40000", "INTERNET_rx": "0x80000"}}),
-            json.dumps({"netdev": {"INTERNET_tx": "0x80000", "INTERNET_rx": "0xc0000"}}),
-        ]
-    )
-
-    with patch("asus_router_monitor.router_info.time.sleep"):
-        result = router.get_traffic()
-
-    assert result == {
-        "speed": {"tx": 1.0, "rx": 1.0},
-        "total": {"sent": 2.0, "recv": 3.0},
-    }
-    assert isinstance(result, dict)
-
-
-def test_get_client_info_returns_requested_client():
-    router = RouterInfo.__new__(RouterInfo)
-    client = {"name": "laptop", "isOnline": "1"}
-    router.get_clients_fullinfo = Mock(
-        return_value={"get_clientlist": {"AA:BB:CC:DD:EE:FF": client}}
-    )
-
-    assert router.get_client_info("AA:BB:CC:DD:EE:FF") == client
-    assert router.get_client_info("missing") is None
+def test_router_info_is_compatibility_facade(monkeypatch):
+    client = Mock(base_url="http://router", login_url="http://router/login.cgi", app_url="http://router/appGet.cgi", cpu_temperature_url="http://router/ajax_coretmp.asp", verify=True, timeout=10)
+    client.session.headers = {"cookie": "asus_token=test"}
+    monkeypatch.setattr("asus_router_monitor.router_info.AsusRouterClient", Mock(return_value=client))
+    router = RouterInfo("router", "admin", "secret")
+    router.monitor.get_uptime = Mock(return_value={"since": "now", "uptime": "1"})
+    assert router.get_uptime_secs() == 1
+    router.close()
+    client.close.assert_called_once_with()

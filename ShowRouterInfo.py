@@ -1,4 +1,5 @@
 import argparse
+import json
 import sys
 
 from asus_router_monitor import (
@@ -37,6 +38,10 @@ def parse_args(argv=None):
     parser.add_argument(
         "--debug", action="store_true", help="Show traceback for router errors"
     )
+    parser.add_argument(
+        "--format", choices=("text", "json"), default="text",
+        help="Output format (default: text)",
+    )
     args = parser.parse_args(argv)
     if args.timeout <= 0:
         parser.error("--timeout must be greater than zero")
@@ -52,32 +57,59 @@ def count_online_clients(online_clients):
     return len(online_clients)
 
 
-def _show_status(args):
+def _collect_status(args):
     verify = args.ca_bundle if args.ca_bundle else not args.insecure
-    ri = RouterInfo(
+    router = RouterInfo(
         args.address,
         args.username,
         args.password,
         verify=verify,
         timeout=args.timeout,
     )
-    print("Last reboot             : " + str(ri.get_uptime()))
-    print("Uptime                  : " + str(ri.get_uptime_secs()))
-    print("Memory                  : " + str(ri.get_memory_usage()))
-    print("CPU                     : " + str(ri.get_cpu_usage()))
     try:
-        cpu_temperature = ri.get_cpu_temperature()
+        cpu_temperature = router.get_cpu_temperature()
     except UnsupportedFirmwareError:
-        cpu_temperature = "Not available"
-    print("CPU Temperature         : " + str(cpu_temperature))
-    print("Data                    : " + str(ri.get_traffic_total()))
-    print("WAN ['status']          : " + str(ri.get_status_wan()['status']))
-    print("Online                  : " + str(ri.is_wan_online()))
-    print("Settings ['time_zone']  : " + str(ri.get_settings()['time_zone']))
-    print("IP addr                 : " + str(ri.get_lan_ip_address()))
-    print("Netmask                 : " + str(ri.get_lan_netmask()))
-    print("Gateway                 : " + str(ri.get_lan_gateway()))
-    client_counts = ri.get_client_counts()
+        cpu_temperature = None
+    wan = router.get_status_wan()
+    settings = router.get_settings()
+    return {
+        "uptime": router.get_uptime(),
+        "uptime_seconds": router.get_uptime_secs(),
+        "memory": router.get_memory_usage(),
+        "cpu": router.get_cpu_usage(),
+        "cpu_temperature": cpu_temperature,
+        "traffic_total": router.get_traffic_total(),
+        "wan": {"status": wan.get("status"), "online": wan.get("status") == "1"},
+        "settings": {"time_zone": settings.get("time_zone")},
+        "lan": {
+            "ip_address": router.get_lan_ip_address(),
+            "netmask": router.get_lan_netmask(),
+            "gateway": router.get_lan_gateway(),
+        },
+        "client_counts": router.get_client_counts(),
+        "dhcp_lease_count": len(router.get_dhcp_list()),
+    }
+
+
+def _show_status(args):
+    status = _collect_status(args)
+    if args.format == "json":
+        print(json.dumps(status, indent=2, sort_keys=True))
+        return
+
+    print("Last reboot             : " + str(status["uptime"]))
+    print("Uptime                  : " + str(status["uptime_seconds"]))
+    print("Memory                  : " + str(status["memory"]))
+    print("CPU                     : " + str(status["cpu"]))
+    print("CPU Temperature         : " + str(status["cpu_temperature"] or "Not available"))
+    print("Data                    : " + str(status["traffic_total"]))
+    print("WAN ['status']          : " + str(status["wan"]["status"]))
+    print("Online                  : " + str(status["wan"]["online"]))
+    print("Settings ['time_zone']  : " + str(status["settings"]["time_zone"]))
+    print("IP addr                 : " + str(status["lan"]["ip_address"]))
+    print("Netmask                 : " + str(status["lan"]["netmask"]))
+    print("Gateway                 : " + str(status["lan"]["gateway"]))
+    client_counts = status["client_counts"]
     print("Connected Clients       : " + str(client_counts["total"]))
     print("Connected Wired         : " + str(client_counts["wired"]))
     print("Connected Wireless      : " + str(client_counts["wireless"]))
@@ -86,7 +118,7 @@ def _show_status(args):
     print("Connected Other WiFi    : " + str(client_counts["other_wireless"]))
     print("Connected Unknown       : " + str(client_counts["unknown"]))
     print("Wireless Radios         : " + str(client_counts["radios"]))
-    print("DHCP                    : " + str(len(ri.get_dhcp_list())))
+    print("DHCP                    : " + str(status["dhcp_lease_count"]))
 
 
 def main(argv=None):
@@ -96,17 +128,17 @@ def main(argv=None):
     except (AuthenticationError, RouterConnectionError) as error:
         if args.debug:
             raise
-        print("Error: {}".format(error), file=sys.stderr)
+        print(f"Error: {error}", file=sys.stderr)
         return EXIT_CONNECTION_OR_AUTH
     except RouterConfigurationError as error:
         if args.debug:
             raise
-        print("Error: {}".format(error), file=sys.stderr)
+        print(f"Error: {error}", file=sys.stderr)
         return EXIT_USAGE
     except RouterResponseError as error:
         if args.debug:
             raise
-        print("Error: {}".format(error), file=sys.stderr)
+        print(f"Error: {error}", file=sys.stderr)
         return EXIT_RESPONSE
     except RouterError:
         if args.debug:

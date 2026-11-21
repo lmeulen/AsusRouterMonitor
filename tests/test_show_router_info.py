@@ -1,3 +1,4 @@
+import json
 from unittest.mock import patch
 
 import pytest
@@ -22,6 +23,7 @@ def test_parse_args_reads_router_credentials():
     assert args.ca_bundle is None
     assert args.insecure is False
     assert args.timeout == 10
+    assert args.format == "text"
 
 
 def test_parse_args_reads_https_options():
@@ -72,6 +74,52 @@ def test_main_passes_arguments_to_router_info():
     router_info.assert_called_once_with(
         "router.local", "admin", "secret", verify=True, timeout=10
     )
+
+
+def test_main_outputs_stable_json_status_document(capsys):
+    with patch("ShowRouterInfo.RouterInfo") as router_info:
+        router = router_info.return_value
+        router.get_uptime.return_value = {"since": "now", "uptime": "10"}
+        router.get_uptime_secs.return_value = 10
+        router.get_memory_usage.return_value = {"mem_total": "1"}
+        router.get_cpu_usage.return_value = {"cpu1_usage": "2"}
+        router.get_cpu_temperature.return_value = {"cpu_temperature": "50"}
+        router.get_traffic_total.return_value = {"sent": 1.0, "recv": 2.0}
+        router.get_status_wan.return_value = {"status": "1"}
+        router.get_settings.return_value = {"time_zone": "UTC"}
+        router.get_lan_ip_address.return_value = "192.0.2.1"
+        router.get_lan_netmask.return_value = "255.255.255.0"
+        router.get_lan_gateway.return_value = "192.0.2.254"
+        router.get_client_counts.return_value = {"total": 0, "radios": {}}
+        router.get_dhcp_list.return_value = []
+
+        assert ShowRouterInfo.main(["router.local", "admin", "secret", "--format", "json"]) == 0
+
+    captured = capsys.readouterr()
+    assert captured.err == ""
+    status = json.loads(captured.out)
+    assert status == {
+        "client_counts": {"radios": {}, "total": 0},
+        "cpu": {"cpu1_usage": "2"},
+        "cpu_temperature": {"cpu_temperature": "50"},
+        "dhcp_lease_count": 0,
+        "lan": {"gateway": "192.0.2.254", "ip_address": "192.0.2.1", "netmask": "255.255.255.0"},
+        "memory": {"mem_total": "1"},
+        "settings": {"time_zone": "UTC"},
+        "traffic_total": {"recv": 2.0, "sent": 1.0},
+        "uptime": {"since": "now", "uptime": "10"},
+        "uptime_seconds": 10,
+        "wan": {"online": True, "status": "1"},
+    }
+
+
+def test_main_json_uses_null_for_unsupported_cpu_temperature(capsys):
+    with patch("ShowRouterInfo._collect_status", return_value={"cpu_temperature": None}):
+        ShowRouterInfo._show_status(ShowRouterInfo.parse_args([
+            "router.local", "admin", "secret", "--format", "json"
+        ]))
+
+    assert json.loads(capsys.readouterr().out) == {"cpu_temperature": None}
 
 
 def test_main_shows_connected_client_counts(capsys):

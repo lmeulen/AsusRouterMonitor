@@ -10,7 +10,7 @@ from .models import CpuUsage, DhcpLeases, MemoryUsage, TrafficTotals, Uptime, Wa
 
 def _invalid(operation: str, error: Exception) -> RouterResponseError:
     return RouterResponseError(
-        "Router returned an invalid response for {}".format(operation)
+        f"Router returned an invalid response for {operation}"
     )
 
 

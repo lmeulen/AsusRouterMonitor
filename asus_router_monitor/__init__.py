@@ -10,6 +10,7 @@ from .exceptions import (
     RouterTLSError,
     UnsupportedFirmwareError,
 )
+from .client import AsusRouterClient
 from .models import (
     ClientCounts,
     ClientInfo,
@@ -18,12 +19,15 @@ from .models import (
     Traffic,
     TrafficRate,
     TrafficTotals,
+    RouterSnapshot,
     Uptime,
     WanStatus,
 )
+from .monitor import RouterMonitor
 from .router_info import RouterInfo
 
 __all__ = [
+    "AsusRouterClient",
     "AuthenticationError",
     "ClientCounts",
     "ClientInfo",
@@ -34,7 +38,9 @@ __all__ = [
     "RouterError",
     "RouterHTTPError",
     "RouterInfo",
+    "RouterMonitor",
     "RouterResponseError",
+    "RouterSnapshot",
     "RouterTLSError",
     "Traffic",
     "TrafficRate",

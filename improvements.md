@@ -20,7 +20,7 @@
 - Connected-client counts available by wired, wireless, best-effort band, and radio ID.
 - `RouterInfo` now lives in `asus_router_monitor`; public imports use `from asus_router_monitor import RouterInfo`.
 - Public exception hierarchy added for configuration, authentication, connection, TLS, HTTP, response, and unsupported-firmware errors.
-- 51 tests pass.
+- 33 tests pass.
 - Ruff reports no lint errors.
 - No package metadata, CI, license, type checking, coverage reporting, or release process.
 
@@ -167,83 +167,44 @@ Investigate and document router counter units and current unexplained `/ 2` conv
 
 ## Phase 3: Architecture Refactor
 
-### 3.1 Introduce transport client
+### 3.1 Introduce transport client — Complete
 
-Create `AsusRouterClient` responsible only for:
+- Added `AsusRouterClient` for base URL normalization, authenticated `requests.Session` lifecycle, TLS verification, timeouts, hook calls, and CPU-temperature endpoint requests.
+- Transport contains no firmware parser or domain calculations.
+- Supports `close()` and context-manager use.
+- Hook requests reauthenticate and retry at most once after HTTP 401/403.
+- Constructor accepts an injectable session; transport tests mock that seam.
 
-- Base URL normalization
-- HTTP session
-- Authentication
-- Cookies/tokens
-- TLS verification
-- Timeouts
-- Hook calls
-- Endpoint GET requests
-- Optional one-time reauthentication
+### 3.2 Introduce domain monitor/service — Complete
 
-Use `requests.Session` for connection reuse and cookie management.
+- Added `RouterMonitor` for uptime, resources, WAN, traffic, settings, clients, CPU temperature, and snapshots.
+- Monitor combines transport responses with pure parsers; it makes no direct HTTP requests.
+- `RouterInfo` now delegates to client and monitor as compatibility facade; documented public calls continue to work.
 
-**Acceptance criteria**
-
-- No parser or domain calculations in transport class.
-- Session lifecycle supports `close()` and context manager use.
-- Reauthentication retries at most once.
-- Transport can be injected or mocked in tests.
-
-### 3.2 Introduce domain monitor/service
-
-Create `RouterMonitor` for high-level operations:
-
-- Uptime
-- Resource usage
-- WAN state
-- Traffic
-- Settings
-- Clients
-- Snapshot generation
-
-Retain `RouterInfo` as a compatibility facade during migration.
-
-**Acceptance criteria**
-
-- Existing documented use cases continue working or emit clear deprecation warnings.
-- New code uses transport and parsers rather than direct requests.
-
-### 3.3 Add snapshot API
-
-Create one coherent snapshot gathered with minimal requests:
+### 3.3 Add snapshot API — Complete
 
 ```python
 snapshot = monitor.get_snapshot()
 ```
 
-Avoid duplicate calls such as fetching uptime and WAN state twice. Request only required settings.
+- Snapshot has a UTC timestamp and fetches each required source once.
+- Unsupported CPU temperature is optional and represented as `None`.
+- Transport, authentication, and malformed required responses abort collection rather than return ambiguous partial data.
+- Added test asserting endpoint call count and optional-temperature policy.
 
-**Acceptance criteria**
-
-- Each source endpoint fetched once per snapshot unless retry required.
-- Timestamp included.
-- Unsupported optional metrics can be represented without losing successful metrics.
-- Partial-result policy documented.
-
-### 3.4 Proposed package layout
+### 3.4 Package layout — Complete for current flat package
 
 ```text
-src/asus_router_monitor/
-├── __init__.py
+asus_router_monitor/
 ├── client.py
 ├── exceptions.py
 ├── models.py
 ├── monitor.py
-├── parsers/
-│   ├── __init__.py
-│   ├── clients.py
-│   ├── resources.py
-│   ├── traffic.py
-│   ├── uptime.py
-│   └── wan.py
-└── cli.py
+├── parsers.py
+└── router_info.py
 ```
+
+Parser submodules and `src/` layout remain optional future packaging refinements; current separation is enforced by module responsibilities.
 
 ---
 
@@ -272,27 +233,15 @@ asus-router-monitor status --fields uptime,wan,temperature
 - Unsupported optional features do not break unrelated commands.
 - Help includes examples.
 
-### 4.2 Add output formats
+### 4.2 Add output formats — Complete for status output
 
-Support:
+- `ShowRouterInfo.py --format text` remains default human-readable status output.
+- Added `--format json` with a stable single status object: uptime, resources, temperature, traffic total, WAN, selected settings, LAN, client counts, and DHCP lease count.
+- JSON stdout contains no labels or diagnostics; errors remain on stderr.
+- Unsupported CPU temperature serializes as JSON `null`.
+- Added schema and stdout/stderr regression tests.
 
-- Human-readable table/text
-- JSON
-- Optional Prometheus format in later phase
-
-Examples:
-
-```bash
-asus-router-monitor clients --format json
-asus-router-monitor status --format table
-```
-
-**Acceptance criteria**
-
-- JSON schema is stable and tested.
-- JSON stdout contains no warnings or labels.
-- Errors and warnings go to stderr.
-- Sensitive client details only appear when requested.
+Prometheus output and command-specific client-detail output remain future work under subcommands.
 
 ### 4.3 Improve human-readable output
 
