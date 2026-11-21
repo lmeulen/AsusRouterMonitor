@@ -60,10 +60,16 @@ def main(argv=None):
     print("IP addr                 : " + str(ri.get_lan_ip_address()))
     print("Netmask                 : " + str(ri.get_lan_netmask()))
     print("Gateway                 : " + str(ri.get_lan_gateway()))
-    print("Clients Full Info       : " + str(count_clients(ri.get_clients_fullinfo())))
-    print("Clients Info            : " + str(len(ri.get_clients_info())))
+    client_counts = ri.get_client_counts()
+    print("Connected Clients       : " + str(client_counts["total"]))
+    print("Connected Wired         : " + str(client_counts["wired"]))
+    print("Connected Wireless      : " + str(client_counts["wireless"]))
+    print("Connected WiFi 2.4 GHz  : " + str(client_counts["wifi_2_4_ghz"]))
+    print("Connected WiFi 5 GHz    : " + str(client_counts["wifi_5_ghz"]))
+    print("Connected Other WiFi    : " + str(client_counts["other_wireless"]))
+    print("Connected Unknown       : " + str(client_counts["unknown"]))
+    print("Wireless Radios         : " + str(client_counts["radios"]))
     print("DHCP                    : " + str(len(ri.get_dhcp_list())))
-    print("Online Clients          : " + str(count_online_clients(ri.get_online_clients())))
 
 
 if __name__ == "__main__":

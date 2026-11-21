@@ -64,6 +64,29 @@ def test_main_passes_arguments_to_router_info():
     )
 
 
+def test_main_shows_connected_client_counts(capsys):
+    with patch("ShowRouterInfo.RouterInfo") as router_info:
+        router_info.return_value.get_client_counts.return_value = {
+            "total": 8,
+            "wired": 2,
+            "wireless": 5,
+            "wifi_2_4_ghz": 3,
+            "wifi_5_ghz": 2,
+            "other_wireless": 0,
+            "unknown": 1,
+            "radios": {"1": 3, "2": 2},
+        }
+        ShowRouterInfo.main(["router.local", "admin", "secret"])
+
+    output = capsys.readouterr().out
+    assert "Connected Clients       : 8" in output
+    assert "Connected Wired         : 2" in output
+    assert "Connected Wireless      : 5" in output
+    assert "Connected WiFi 2.4 GHz  : 3" in output
+    assert "Connected WiFi 5 GHz    : 2" in output
+    assert "Connected Unknown       : 1" in output
+
+
 def test_main_disables_certificate_verification_when_requested():
     with patch("ShowRouterInfo.RouterInfo") as router_info:
         ShowRouterInfo.main(

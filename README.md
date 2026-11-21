@@ -51,6 +51,7 @@ get_cpu_usage        - CPU usage statistics
 get_cpu_temperature  - CPU temperature (supported firmware only)
 get_settings         - get set of most important router settings
 get_clients_fullinfo - All info of all connected clients
+get_client_counts    - Online client counts by connection and wireless radio
 get_clients_info     - Get most important info on all clients
 get_client_info(cid) - Get info of specified client (MAC address)
 get_traffic_total    - Total network usage since last boot
@@ -65,3 +66,5 @@ get_online_clients   - Get list of online clients (MAC address)
 get_clients_info     - Get most important info on all clients
 get_client_info(cid) - Get info of specified client (MAC address)
 ```
+
+`get_client_counts()` returns exact wired, wireless, unknown, total, and per-radio counts. Band names are best-effort: Asus commonly maps radio `1` to 2.4 GHz and radio `2` to 5 GHz, but this can differ by router model and firmware. Radio `3` and later are reported as `other_wireless` and remain visible in the `radios` mapping.

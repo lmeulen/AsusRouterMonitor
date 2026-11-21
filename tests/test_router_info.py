@@ -132,6 +132,56 @@ def test_client_methods_handle_missing_clientlist():
         assert router.get_client_info("AA:BB:CC:DD:EE:FF") is None
 
 
+def test_get_client_counts_groups_online_clients_by_connection():
+    router = RouterInfo.__new__(RouterInfo)
+    router.get_clients_fullinfo = Mock(
+        return_value={
+            "get_clientlist": {
+                "AA:BB:CC:DD:EE:01": {"isOnline": "1", "isWL": "0"},
+                "AA:BB:CC:DD:EE:02": {"isOnline": "1", "isWL": "1"},
+                "AA:BB:CC:DD:EE:03": {"isOnline": "1", "isWL": "2"},
+                "AA:BB:CC:DD:EE:04": {"isOnline": "1", "isWL": "3"},
+                "AA:BB:CC:DD:EE:05": {"isOnline": "1"},
+                "AA:BB:CC:DD:EE:06": {"isOnline": "0", "isWL": "1"},
+                "maclist": [],
+                "ClientAPILevel": "2",
+            }
+        }
+    )
+
+    counts = router.get_client_counts()
+
+    assert counts == {
+        "total": 5,
+        "wired": 1,
+        "wireless": 3,
+        "wifi_2_4_ghz": 1,
+        "wifi_5_ghz": 1,
+        "other_wireless": 1,
+        "unknown": 1,
+        "radios": {"1": 1, "2": 1, "3": 1},
+    }
+    assert counts["total"] == (
+        counts["wired"] + counts["wireless"] + counts["unknown"]
+    )
+
+
+def test_get_client_counts_handles_missing_clientlist():
+    router = RouterInfo.__new__(RouterInfo)
+    router.get_clients_fullinfo = Mock(return_value={})
+
+    assert router.get_client_counts() == {
+        "total": 0,
+        "wired": 0,
+        "wireless": 0,
+        "wifi_2_4_ghz": 0,
+        "wifi_5_ghz": 0,
+        "other_wireless": 0,
+        "unknown": 0,
+        "radios": {},
+    }
+
+
 def test_client_methods_handle_partial_client_records():
     router = RouterInfo.__new__(RouterInfo)
     router.get_clients_fullinfo = Mock(

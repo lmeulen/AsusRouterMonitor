@@ -303,6 +303,46 @@ class RouterInfo:
         ]
         return json.dumps(online)
 
+    def get_client_counts(self):
+        """
+        Count online clients by wired connection and wireless radio.
+
+        Asus commonly reports radio 1 as 2.4 GHz and radio 2 as 5 GHz,
+        but mappings can differ by model and firmware.
+        :return: Dictionary with totals, best-effort bands, and radio counts
+        """
+        counts = {
+            'total': 0,
+            'wired': 0,
+            'wireless': 0,
+            'wifi_2_4_ghz': 0,
+            'wifi_5_ghz': 0,
+            'other_wireless': 0,
+            'unknown': 0,
+            'radios': {},
+        }
+        for client_id, client in self._get_clientlist().items():
+            if (len(client_id) != 17 or not isinstance(client, dict)
+                    or client.get('isOnline') != '1'):
+                continue
+
+            counts['total'] += 1
+            radio = str(client.get('isWL', '')).strip()
+            if radio == '0':
+                counts['wired'] += 1
+            elif radio.isdigit() and radio != '0':
+                counts['wireless'] += 1
+                counts['radios'][radio] = counts['radios'].get(radio, 0) + 1
+                if radio == '1':
+                    counts['wifi_2_4_ghz'] += 1
+                elif radio == '2':
+                    counts['wifi_5_ghz'] += 1
+                else:
+                    counts['other_wireless'] += 1
+            else:
+                counts['unknown'] += 1
+        return counts
+
     def get_clients_info(self):
         """
         Obtain info on all clients (limited list of datafields)
