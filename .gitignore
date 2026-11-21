@@ -6,4 +6,6 @@ __pycache__/
 coverage.xml
 .venv/
 asus_router_monitor.egg-info/
+build/
+dist/
 *.py[cod]

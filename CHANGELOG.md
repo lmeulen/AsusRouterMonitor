@@ -2,7 +2,7 @@
 
 All notable changes are documented here.
 
-## 2.0.0 - Unreleased
+## 2.0.0 - 2026-11-21
 
 - Added typed public errors, contracts, pure parsers, and native Python return values.
 - Split HTTP transport into `AsusRouterClient` and domain operations into `RouterMonitor`.
